@@ -4,7 +4,7 @@
 
 A research and educational repository for calculating the complex electromagnetic field produced by high-numerical-aperture (high-NA) focusing systems. The project starts from the **Richards–Wolf / Debye–Wolf diffraction integral**, develops the analytical azimuthal decomposition for Laguerre–Gaussian (LG) beams, and explores FFT-based approaches for computing arbitrary vectorial fields in three-dimensional focal volumes.
 
-The objective is to build **physically transparent, independently validated solvers**—and, eventually, to use the same forward model for inverse focal-field and optical-topology design.
+The objective is to build **physically transparent, independently validated solvers** for vectorial tight focusing.
 
 > **Project status:** Research notebooks and tutorials under active development. The `main` branch preserves the historical source notebooks. CPU tutorials are on separate feature branches. The two GPU branches have been created for development but **do not yet contain a verified GPU implementation**. Numerical results should be checked for convergence before scientific use.
 
@@ -191,17 +191,7 @@ A numerical calculation is not validated by a plausible-looking intensity plot. 
 
 The repository currently models idealized monochromatic focusing in a homogeneous medium. Interfaces, multilayer objectives, aberrations, evanescent waves, broadband/polychromatic fields, and general nonlinear responses require separate physical extensions.
 
-## Long-term research direction
 
-The proposed architecture has three complementary components:
-
-**Forward modeling:** calculate `Ex, Ey, Ez` from arbitrary incident pupil fields, and compute spatial volumes efficiently.
-
-**Analytical inverse focusing:** when a physically admissible complex focal-plane vector field is specified, recover an incident transverse Jones field through its angular spectrum and the inverse lens polarization transformation.
-
-**Constrained inverse/topological design:** seek experimentally realizable incident pupils that reproduce target intensity, polarization, phase singularities, or prescribed knot/link geometries. Exact field inversion and constrained topology design are *different* mathematical problems; the latter requires constraints and independent topology validation.
-
-These inverse problems are **research directions, not completed features** of the current repository.
 
 ## Theoretical background and references
 
