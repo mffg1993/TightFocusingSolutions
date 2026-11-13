@@ -67,6 +67,13 @@ Historical files are retained for provenance. The tutorial notebooks provide doc
 
 The four branches are intentionally separate so numerical implementations can be developed and reviewed without overwriting historical code or introducing premature dependencies.
 
+
+### Focal-plane polarization atlas (Gaussian, LG, cylindrical-vector, full-Poincaré)
+
+Each branch includes [`tutorials/04_Focal_Plane_Polarization_Atlas_PyVista.ipynb`](tutorials/04_Focal_Plane_Polarization_Atlas_PyVista.ipynb), using that branch's **integral or FFT** algorithm. The notebook generates all three complex electric-field components at `z=0`, six intensity/phase maps per example, and an **8×8 grid of 3D polarization ellipses** on an intensity background via PyVista. Included are Gaussian and LG `ℓ=±1` beams in six Jones states; four cylindrical-vector constructions; and star, monstar and lemon full-Poincaré input textures.
+
+The two GPU feature branches use **JAX** for the atlas calculation and explicitly check for an accelerator; these are teaching demonstrations, **not yet GPU benchmarks or replacements for a fully validated production GPU solver**. PyVista rendering requires an appropriate notebook graphics backend. Convergence and full-complex-field comparisons remain essential.
+
 ## Getting started
 
 ### 1. Clone the repository
