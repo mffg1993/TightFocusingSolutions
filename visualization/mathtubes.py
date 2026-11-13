@@ -190,9 +190,23 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             if amp<minimum_relative_amplitude*max_amp:
                 continue
             center=(x[ix],y[iy],.035*pitch)
-            path=ellipse_points(vector,center,scale=.36*pitch/amp,samples=72)
-            # A MathTubes closed tube is naturally a smooth, continuous loop.
-            mesh=tube(path,radius=ellipse_radius,closed=True,sides=24)
+            # The local 3D polarization ellipse is the image of a unit
+            # circle under the real 3x2 matrix [Re(E), Im(E)]. Its singular
+            # values are the major and minor semiaxes. If the minor axis
+            # vanishes, the ellipse is a LINE, not a closed loop.
+            U, singular_values, _ = np.linalg.svd(
+                np.column_stack((vector.real,vector.imag)),
+                full_matrices=False)
+            scale=.36*pitch/amp
+            if singular_values[1] < 1e-5*singular_values[0]:
+                direction=U[:,0]*singular_values[0]*scale
+                line=np.stack((np.asarray(center)-direction,
+                               np.asarray(center)+direction))
+                mesh=tube(line,radius=ellipse_radius,
+                          closed=False,sides=24)
+            else:
+                path=ellipse_points(vector,center,scale=scale,samples=72)
+                mesh=tube(path,radius=ellipse_radius,closed=True,sides=24)
             hand=np.imag(vector[0]*np.conj(vector[1]))
             hue="#d95f59" if hand>1e-9*amp*amp else (
                 "#348fba" if hand<-1e-9*amp*amp else "#eeeeee")
