@@ -139,7 +139,8 @@ def ellipse_points(field: np.ndarray, center: tuple[float,float,float],
         e.imag[None,:]*np.sin(t[:,None]))
 
 def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
-                        *, ngrid: int = 8, roi: float = 2.5,
+                        *, ngrid: int = 8, roi: float = 1.5,
+                        tube_radius_fraction: float = 0.024,
                         minimum_relative_amplitude: float = 1e-9,
                         screenshot: str | None = None,
                         off_screen: bool = True, size: tuple[int,int] = (1100,900),
@@ -158,6 +159,7 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     if e.shape!=(3,len(y),len(x)):
         raise ValueError("field shape must be (3, len(y), len(x))")
     if ngrid<2: raise ValueError("ngrid must be >=2")
+    if tube_radius_fraction<=0: raise ValueError("tube_radius_fraction must be positive")
     if not np.all(np.isfinite(e)): raise ValueError("field is not finite")
     X,Y=np.meshgrid(x,y,indexing="xy")
     intensity=np.sum(np.abs(e)**2,axis=0)
@@ -174,7 +176,10 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     plot=pv.Plotter(off_screen=off_screen,window_size=size)
     plot.set_background("white")
     plot.add_mesh(grid,scalars="Intensity",cmap="viridis",
-                  clim=(0,1),opacity=.83,show_scalar_bar=True)
+                  clim=(0,1),opacity=.83,show_scalar_bar=True,
+                  scalar_bar_args=dict(title="Normalized intensity",
+                                       vertical=True, position_x=0.85,
+                                       position_y=0.20, width=0.07, height=0.60))
     plot.enable_anti_aliasing("ssaa")
     plot.enable_lightkit()
     inds_x=np.linspace(xs[0]+2,xs[-1]-2,ngrid).round().astype(int)
@@ -182,7 +187,7 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     pitch=min(x[inds_x[-1]]-x[inds_x[0]],
               y[inds_y[-1]]-y[inds_y[0]])/(ngrid-1)
     max_amp=np.sqrt(top)
-    ellipse_radius=.014*pitch
+    ellipse_radius=tube_radius_fraction*pitch
     for iy in inds_y:
         for ix in inds_x:
             vector=e[:,iy,ix]
@@ -212,6 +217,9 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                 "#348fba" if hand<-1e-9*amp*amp else "#eeeeee")
             plot.add_mesh(mesh,color=hue,smooth_shading=True,
                           pbr=True,metallic=.35,roughness=.3,show_scalar_bar=False)
+    # All positions have been expressed in vacuum-wavelength units.
+    plot.show_grid(xlabel="x / λ₀", ylabel="y / λ₀", zlabel="z / λ₀",
+                   color="gray")
     plot.add_axes()
     plot.camera_position=[(7,-9,9),(0,0,0),(0,0,1)]
     plot.camera.zoom(1.15)
