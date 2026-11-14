@@ -140,6 +140,8 @@ def ellipse_points(field: np.ndarray, center: tuple[float,float,float],
 
 def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                         *, ngrid: int = 8, roi: float = 1.5,
+                        xlim: tuple[float, float] | None = None,
+                        ylim: tuple[float, float] | None = None,
                         tube_radius_fraction: float = 0.065,
                         minimum_relative_amplitude: float = 1e-9,
                         screenshot: str | None = None,
@@ -153,6 +155,8 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     The continuous background carries the intensity information.
     Colors show sign(Im(Ex*conj(Ey))), a transverse handedness proxy only.
     Skip a site if the field nearly vanishes (polarization undefined).
+    xlim/ylim select the plotted region in vacuum-wavelength units; omitted
+    limits default to (-roi, roi). The optical field itself is not recalculated.
     """
     e=np.asarray(field)
     x=np.asarray(x,dtype=float);y=np.asarray(y,dtype=float)
@@ -166,10 +170,21 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     top=float(intensity.max())
     if top<=0: raise ValueError("field has zero intensity everywhere")
     intensity=intensity/top
-    xs=np.flatnonzero(np.abs(x)<=roi)
-    ys=np.flatnonzero(np.abs(y)<=roi)
+    if xlim is None: xlim=(-float(roi),float(roi))
+    if ylim is None: ylim=(-float(roi),float(roi))
+    xlim=tuple(float(v) for v in xlim)
+    ylim=tuple(float(v) for v in ylim)
+    if (len(xlim)!=2 or len(ylim)!=2
+        or not np.isfinite((*xlim,*ylim)).all()
+        or xlim[0]>=xlim[1] or ylim[0]>=ylim[1]):
+        raise ValueError("xlim and ylim must be (minimum, maximum) finite increasing pairs")
+    xs=np.flatnonzero((x>=xlim[0]) & (x<=xlim[1]))
+    ys=np.flatnonzero((y>=ylim[0]) & (y<=ylim[1]))
     if len(xs)<ngrid+2 or len(ys)<ngrid+2:
-        raise ValueError("ROI is too small for the requested ellipse grid")
+        raise ValueError(
+            f"Requested region has only {len(xs)} x {len(ys)} samples. "
+            f"Need >= {ngrid+2} per axis for ngrid={ngrid}; "
+            "increase the region or recalculate the field with a finer grid.")
     sy=slice(ys[0],ys[-1]+1);sx=slice(xs[0],xs[-1]+1)
     grid=pv.StructuredGrid(X[sy,sx],Y[sy,sx],np.zeros_like(X[sy,sx]))
     grid.point_data["Intensity"]=intensity[sy,sx].ravel(order="F")
@@ -229,20 +244,25 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             hand=np.imag(vector[0]*np.conj(vector[1]))
             hue="#d95f59" if hand>1e-9*amp*amp else (
                 "#348fba" if hand<-1e-9*amp*amp else "#eeeeee")
-            plot.add_mesh(mesh,color=hue,smooth_shading=True,
-                          pbr=True,metallic=.35,roughness=.3,show_scalar_bar=False)
+            # Matte color: no metallic environment reflections that can alter hue.
+            plot.add_mesh(mesh, color=hue, smooth_shading=True,
+                          pbr=False, ambient=0.60, diffuse=0.40,
+                          specular=0.0, show_scalar_bar=False)
     # All positions have been expressed in vacuum-wavelength units.
     # Show actual wavelength coordinates on the focal plane. Set explicit
     # bounds so nearly-planar geometry does not create tiny/unreadable axes.
     # The z-coordinate is a display offset, not longitudinal propagation.
-    bounds = (-float(roi), float(roi), -float(roi), float(roi),
+    bounds = (xlim[0], xlim[1], ylim[0], ylim[1],
               -0.10 * pitch, 0.70 * pitch)
     plot.show_bounds(bounds=bounds, xtitle="x / λ₀", ytitle="y / λ₀",
                      ztitle="z / λ₀", n_xlabels=5, n_ylabels=5,
                      n_zlabels=2, location="outer", all_edges=True,
                      color="black")
     plot.add_axes(line_width=2)
-    plot.camera_position=[(3.8,-5.5,7.5),(0,0,0),(0,0,1)]
+    midpoint=((xlim[0]+xlim[1])/2, (ylim[0]+ylim[1])/2, 0.0)
+    span=max(xlim[1]-xlim[0],ylim[1]-ylim[0])
+    plot.camera_position=[(midpoint[0]+1.27*span, midpoint[1]-1.83*span,
+                           midpoint[2]+2.5*span), midpoint, (0,0,1)]
     plot.camera.zoom(1.45)
     if screenshot is not None: plot.screenshot(screenshot)
     if show: plot.show(jupyter_backend="static")
