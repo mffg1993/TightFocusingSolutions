@@ -175,11 +175,25 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     grid.point_data["Intensity"]=intensity[sy,sx].ravel(order="F")
     plot=pv.Plotter(off_screen=off_screen,window_size=size)
     plot.set_background("white")
-    plot.add_mesh(grid,scalars="Intensity",cmap="viridis",
-                  clim=(0,1),opacity=.83,show_scalar_bar=True,
-                  scalar_bar_args=dict(title="Normalized intensity",
-                                       vertical=True, position_x=0.85,
-                                       position_y=0.20, width=0.07, height=0.60))
+    # Do not use an automatic scalar bar here: its orientation and placement
+    # can vary between PyVista themes and VTK/Colab versions.
+    intensity_actor = plot.add_mesh(
+        grid, scalars="Intensity", cmap="viridis", clim=(0, 1),
+        opacity=0.83, show_scalar_bar=False)
+    plot.add_scalar_bar(
+        title="Intensity / max", mapper=intensity_actor.mapper,
+        vertical=True, interactive=False,
+        position_x=0.88, position_y=0.21,
+        width=0.075, height=0.56,
+        n_labels=5, fmt="%.2f",
+        color="black", title_font_size=14, label_font_size=12,
+        outline=False)
+    # Explicit VTK enforcement protects against version/theme overrides.
+    bar_actor = plot.scalar_bars["Intensity / max"]
+    bar_actor.SetOrientationToVertical()
+    bar_actor.SetPosition(0.88, 0.21)
+    bar_actor.SetWidth(0.075)
+    bar_actor.SetHeight(0.56)
     plot.enable_anti_aliasing("ssaa")
     plot.enable_lightkit()
     inds_x=np.linspace(xs[0]+2,xs[-1]-2,ngrid).round().astype(int)
