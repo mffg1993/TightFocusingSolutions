@@ -140,7 +140,7 @@ def ellipse_points(field: np.ndarray, center: tuple[float,float,float],
 
 def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                         *, ngrid: int = 8, roi: float = 1.5,
-                        tube_radius_fraction: float = 0.024,
+                        tube_radius_fraction: float = 0.065,
                         minimum_relative_amplitude: float = 1e-9,
                         screenshot: str | None = None,
                         off_screen: bool = True, size: tuple[int,int] = (1100,900),
@@ -202,7 +202,7 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             U, singular_values, _ = np.linalg.svd(
                 np.column_stack((vector.real,vector.imag)),
                 full_matrices=False)
-            scale=.36*pitch/amp
+            scale=.44*pitch/amp
             if singular_values[1] < 1e-5*singular_values[0]:
                 direction=U[:,0]*singular_values[0]*scale
                 line=np.stack((np.asarray(center)-direction,
@@ -218,11 +218,18 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             plot.add_mesh(mesh,color=hue,smooth_shading=True,
                           pbr=True,metallic=.35,roughness=.3,show_scalar_bar=False)
     # All positions have been expressed in vacuum-wavelength units.
-    plot.show_grid(xlabel="x / λ₀", ylabel="y / λ₀", zlabel="z / λ₀",
-                   color="gray")
-    plot.add_axes()
-    plot.camera_position=[(7,-9,9),(0,0,0),(0,0,1)]
-    plot.camera.zoom(1.15)
+    # Show actual wavelength coordinates on the focal plane. Set explicit
+    # bounds so nearly-planar geometry does not create tiny/unreadable axes.
+    # The z-coordinate is a display offset, not longitudinal propagation.
+    bounds = (-float(roi), float(roi), -float(roi), float(roi),
+              -0.10 * pitch, 0.70 * pitch)
+    plot.show_bounds(bounds=bounds, xtitle="x / λ₀", ytitle="y / λ₀",
+                     ztitle="z / λ₀", n_xlabels=5, n_ylabels=5,
+                     n_zlabels=2, location="outer", all_edges=True,
+                     color="black")
+    plot.add_axes(line_width=2)
+    plot.camera_position=[(3.8,-5.5,7.5),(0,0,0),(0,0,1)]
+    plot.camera.zoom(1.45)
     if screenshot is not None: plot.screenshot(screenshot)
     if show: plot.show(jupyter_backend="static")
     return plot
