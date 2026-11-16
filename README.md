@@ -6,7 +6,7 @@ A research and educational repository for calculating the complex electromagneti
 
 The objective is to build **physically transparent, independently validated solvers** for vectorial tight focusing.
 
-> **Project status:** Research notebooks and tutorials under active development. The `main` branch preserves the historical source notebooks. CPU tutorials are on separate feature branches. The two GPU branches have been created for development but **do not yet contain a verified GPU implementation**. Numerical results should be checked for convergence before scientific use.
+> **Project status:** First collaborator-facing CPU integral atlas is available on `main`, with the full theory tutorial and an offline interactive HTML explorer. Historical notebooks remain available. FFT and GPU variants remain on development branches; GPU hardware validation is pending.
 
 ## What problem does this repository solve?
 
@@ -70,9 +70,17 @@ The four branches are intentionally separate so numerical implementations can be
 
 ### Focal-plane polarization atlas (Gaussian, LG, cylindrical-vector, full-Poincaré)
 
+**Recommended starting point:** [Open the main-branch atlas in Google Colab](https://colab.research.google.com/github/mffg1993/TightFocusingSolutions/blob/main/tutorials/04_Focal_Plane_Polarization_Atlas_PyVista.ipynb). It contains the detailed Richards–Wolf and five-integral derivation, commented NumPy/SciPy code, and 25 beam examples. Run the setup and definition cells, then the desired example. The default CPU runtime is sufficient.
+
+The static PyVista image has an **Open interactive HTML** button linking to an offline Plotly/WebGL dashboard with vertically stacked ellipse and polarization-axis figures, intensity and axis checkboxes, visualization sliders, and linked cameras. The dashboard resamples the computed field; it does not solve the diffraction integral in the browser. The private cross-method benchmark is not included in the public repository.
+
+[Detailed five-integral theory tutorial on main](tutorials/01_Thesis_Bessel_Integral_Decomposition.ipynb).
+
 Each branch includes [`tutorials/04_Focal_Plane_Polarization_Atlas_PyVista.ipynb`](tutorials/04_Focal_Plane_Polarization_Atlas_PyVista.ipynb), using that branch's **integral or FFT** algorithm. The notebook generates all three complex electric-field components at `z=0`, six intensity/phase maps per example, and an **8×8 grid of 3D polarization ellipses** on an intensity background via PyVista. Included are Gaussian and LG `ℓ=±1` beams in six Jones states; four cylindrical-vector constructions; and star, monstar and lemon full-Poincaré input textures.
 
-The polarization renderer is adapted from the supplied **MathTubes_Colab.ipynb**, now provided as [`visualization/mathtubes.py`](visualization/mathtubes.py). It uses Mathematica-style `tube()` meshes with PyVista lighting and an adapter that plots computed 3D polarization ellipses (or straight tubes for linear states) over the intensity map. Run the notebook from the repository root or its `tutorials/` directory.\n\nThe two GPU feature branches use **JAX** for the atlas calculation and explicitly check for an accelerator; these are teaching demonstrations, **not yet GPU benchmarks or replacements for a fully validated production GPU solver**. PyVista rendering requires an appropriate notebook graphics backend. Convergence and full-complex-field comparisons remain essential.
+The polarization renderer is adapted from the supplied **MathTubes_Colab.ipynb**, now provided as [`visualization/mathtubes.py`](visualization/mathtubes.py). It uses Mathematica-style `tube()` meshes with PyVista lighting and an adapter that plots computed 3D polarization ellipses (or straight tubes for linear states) over the intensity map. Run the notebook from the repository root or its `tutorials/` directory.
+
+The two GPU feature branches use **JAX** for the atlas calculation and explicitly check for an accelerator; these are teaching demonstrations, **not yet GPU benchmarks or replacements for a fully validated production GPU solver**. PyVista rendering requires an appropriate notebook graphics backend. Convergence and full-complex-field comparisons remain essential.
 
 ## Getting started
 
@@ -91,7 +99,7 @@ cd TightFocusingSolutions
 git switch feature/thesis-integral-decomposition
 ```
 
-Open `tutorials/01_Thesis_Bessel_Integral_Decomposition.ipynb`.
+Open `tutorials/01_Thesis_Bessel_Integral_Decomposition.ipynb`. Both the detailed theory tutorial and the collaborator-facing atlas are also on `main`.
 
 **Arbitrary-pupil FFT method**
 
@@ -109,7 +117,7 @@ The CPU notebooks require Python, NumPy, SciPy, Matplotlib, and Jupyter. A minim
 python -m venv .venv
 source .venv/bin/activate           # Linux/macOS
 python -m pip install --upgrade pip
-python -m pip install numpy scipy matplotlib jupyterlab
+python -m pip install numpy scipy matplotlib jupyterlab pyvista vtk plotly "trame-pyvista[jupyter]"
 jupyter lab
 ```
 
