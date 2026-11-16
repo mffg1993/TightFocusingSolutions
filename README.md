@@ -82,6 +82,12 @@ The polarization renderer is adapted from the supplied **MathTubes_Colab.ipynb**
 
 The two GPU feature branches use **JAX** for the atlas calculation and explicitly check for an accelerator; these are teaching demonstrations, **not yet GPU benchmarks or replacements for a fully validated production GPU solver**. PyVista rendering requires an appropriate notebook graphics backend. Convergence and full-complex-field comparisons remain essential.
 
+### Optical polarization Möbius strips (Tutorial 03)
+
+[Open in Google Colab](https://colab.research.google.com/github/mffg1993/TightFocusingSolutions/blob/main/tutorials/03_Polarization_Mobius_Strips.ipynb) · [Notebook source](tutorials/03_Polarization_Mobius_Strips.ipynb).
+
+A standalone tutorial on three-dimensional C-points, phase winding of `E·E`, nonorientable polarization-axis ribbons, interactive Plotly visualization, and OBJ mesh export. The star, monstar and lemon labels refer to the incident textures; the focused topology is tested independently.
+
 ## Getting started
 
 ### 1. Clone the repository
