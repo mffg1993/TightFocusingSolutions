@@ -138,10 +138,48 @@ def ellipse_points(field: np.ndarray, center: tuple[float,float,float],
         e.real[None,:]*np.cos(t[:,None])+
         e.imag[None,:]*np.sin(t[:,None]))
 
+def polarization_axes(field, *, circular_tolerance=1e-8):
+    """Return normalized semiaxes alpha, beta and spin normal gamma.
+
+    Component axis is first (3, ...). Convention exp(-i omega t).
+    alpha/beta are directors and undefined at circular states; gamma is
+    Im(conj(E) cross E)/|E|^2 = 2 alpha cross beta away from circularity.
+    Zero-field sites are NaN. Reference: Bliokh, Alonso & Dennis (2019),
+    doi:10.1088/1361-6633/ab4415, Eq. (18).
+    """
+    e = np.asarray(field, dtype=complex)
+    if e.ndim < 1 or e.shape[0] != 3:
+        raise ValueError("field must have shape (3, ...)")
+    intensity = np.sum(abs(e)**2, axis=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        u = e / np.sqrt(intensity)
+    q = np.sum(u*u, axis=0)
+    rectified = u*np.exp(-0.5j*np.angle(q))
+    alpha, beta = rectified.real.copy(), rectified.imag.copy()
+    circular = abs(q) <= circular_tolerance
+    alpha = np.where(circular[None,...], np.nan, alpha)
+    beta = np.where(circular[None,...], np.nan, beta)
+    gamma = np.imag(np.cross(u.conj(),u,axisa=0,axisb=0,axisc=0))
+    return alpha, beta, gamma
+
+
+def plot_polarization_axes(field, x, y, *, component="all", **kwargs):
+    """Plot alpha/beta directors and/or the directed gamma spin vector."""
+    return plot_field_ellipses(field,x,y,glyph_mode=component,**kwargs)
+
+
 def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                         *, ngrid: int = 8, roi: float = 1.5,
-                        tube_radius_fraction: float = 0.024,
-                        minimum_relative_amplitude: float = 1e-9,
+                        xlim: tuple[float, float] | None = None,
+                        ylim: tuple[float, float] | None = None,
+                        tube_radius_fraction: float = 0.065,
+                        minimum_relative_amplitude: float = 0.03,
+                        auto_roi: bool = True,
+                        roi_threshold: float = 0.05,
+                        linear_threshold: float = 0.03,
+                        glyph_mode: str = 'ellipse',
+                        interactive: bool = False,
+                        html_path: str | None = None,
                         screenshot: str | None = None,
                         off_screen: bool = True, size: tuple[int,int] = (1100,900),
                         show: bool = True) -> pv.Plotter:
@@ -151,13 +189,22 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     Ellipse sizes are *locally normalized for legibility*. Consequently,
     ellipse size must NOT be interpreted as measured field amplitude.
     The continuous background carries the intensity information.
-    Colors show sign(Im(Ex*conj(Ey))), a transverse handedness proxy only.
-    Skip a site if the field nearly vanishes (polarization undefined).
+    Gray marks nearly linear polarization. Red/blue mark positive/negative
+    gamma_z, falling back to the dominant transverse component at near-zero
+    gamma_z. The fallback is a display convention, not helicity.
+    Sites below minimum_relative_amplitude times the global peak amplitude
+    are omitted. Unspecified limits are automatically selected from the
+    roi_threshold fraction of peak intensity, with padding, capped by roi.
+    Explicit xlim/ylim override auto framing. Fields are not recalculated.
+    interactive=True uses the standalone browser-side HTML backend.
+    html_path optionally exports the same scene as an interactive HTML file.
     """
     e=np.asarray(field)
     x=np.asarray(x,dtype=float);y=np.asarray(y,dtype=float)
     if e.shape!=(3,len(y),len(x)):
         raise ValueError("field shape must be (3, len(y), len(x))")
+    if glyph_mode not in ('ellipse','all','alpha','beta','gamma'):
+        raise ValueError('Unknown glyph_mode')
     if ngrid<2: raise ValueError("ngrid must be >=2")
     if tube_radius_fraction<=0: raise ValueError("tube_radius_fraction must be positive")
     if not np.all(np.isfinite(e)): raise ValueError("field is not finite")
@@ -166,20 +213,65 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     top=float(intensity.max())
     if top<=0: raise ValueError("field has zero intensity everywhere")
     intensity=intensity/top
-    xs=np.flatnonzero(np.abs(x)<=roi)
-    ys=np.flatnonzero(np.abs(y)<=roi)
+    if not 0 < roi_threshold <= 1: raise ValueError("roi_threshold must lie in (0,1]")
+    if not 0 <= minimum_relative_amplitude < 1: raise ValueError("minimum_relative_amplitude must lie in [0,1)")
+    if not 0 <= linear_threshold < 1: raise ValueError("linear_threshold must lie in [0,1)")
+    def auto_limits(axis, indices):
+        lo, hi = axis[indices.min()], axis[indices.max()]
+        margin = max(0.18*(hi-lo), 3*np.min(np.diff(axis)))
+        # Keep enough samples to support the requested ellipse density.
+        center = (lo+hi)/2
+        half = max((hi-lo)/2+margin, (ngrid+4)*np.min(np.diff(axis))/2)
+        return (max(float(axis[0]), -float(roi), center-half),
+                min(float(axis[-1]), float(roi), center+half))
+    iy_sig, ix_sig = np.nonzero(intensity >= roi_threshold)
+    if xlim is None: xlim=auto_limits(x,ix_sig) if auto_roi else (-float(roi),float(roi))
+    if ylim is None: ylim=auto_limits(y,iy_sig) if auto_roi else (-float(roi),float(roi))
+    xlim=tuple(float(v) for v in xlim)
+    ylim=tuple(float(v) for v in ylim)
+    if (len(xlim)!=2 or len(ylim)!=2
+        or not np.isfinite((*xlim,*ylim)).all()
+        or xlim[0]>=xlim[1] or ylim[0]>=ylim[1]):
+        raise ValueError("xlim and ylim must be (minimum, maximum) finite increasing pairs")
+    xs=np.flatnonzero((x>=xlim[0]) & (x<=xlim[1]))
+    ys=np.flatnonzero((y>=ylim[0]) & (y<=ylim[1]))
     if len(xs)<ngrid+2 or len(ys)<ngrid+2:
-        raise ValueError("ROI is too small for the requested ellipse grid")
+        raise ValueError(
+            f"Requested region has only {len(xs)} x {len(ys)} samples. "
+            f"Need >= {ngrid+2} per axis for ngrid={ngrid}; "
+            "increase the region or recalculate the field with a finer grid.")
     sy=slice(ys[0],ys[-1]+1);sx=slice(xs[0],xs[-1]+1)
     grid=pv.StructuredGrid(X[sy,sx],Y[sy,sx],np.zeros_like(X[sy,sx]))
     grid.point_data["Intensity"]=intensity[sy,sx].ravel(order="F")
-    plot=pv.Plotter(off_screen=off_screen,window_size=size)
+    # Independent renderers: the scalar bar cannot overlap the 3D scene.
+    plot=pv.Plotter(shape=(1,2), border=False, off_screen=off_screen,
+                    notebook=interactive, window_size=size)
+    plot.renderers[0].SetViewport(0.0,0.0,0.80,1.0)
+    plot.renderers[1].SetViewport(0.80,0.0,1.0,1.0)
+    plot.subplot(0,0)
     plot.set_background("white")
-    plot.add_mesh(grid,scalars="Intensity",cmap="viridis",
-                  clim=(0,1),opacity=.83,show_scalar_bar=True,
-                  scalar_bar_args=dict(title="Normalized intensity",
-                                       vertical=True, position_x=0.85,
-                                       position_y=0.20, width=0.07, height=0.60))
+    # Do not use an automatic scalar bar here: its orientation and placement
+    # can vary between PyVista themes and VTK/Colab versions.
+    intensity_actor = plot.add_mesh(
+        grid, scalars="Intensity", cmap="viridis", clim=(0, 1),
+        opacity=1.0, lighting=False, show_scalar_bar=False)
+    plot.subplot(0,1)
+    plot.set_background("white")
+    plot.add_scalar_bar(
+        title="Intensity / max", mapper=intensity_actor.mapper,
+        vertical=True, interactive=False,
+        position_x=0.15, position_y=0.18,
+        width=0.32, height=0.64,
+        n_labels=5, fmt="%.2f",
+        color="black", title_font_size=14, label_font_size=12,
+        outline=False)
+    # Explicit VTK enforcement protects against version/theme overrides.
+    bar_actor = plot.scalar_bars["Intensity / max"]
+    bar_actor.SetOrientationToVertical()
+    bar_actor.SetPosition(0.15, 0.18)
+    bar_actor.SetWidth(0.32)
+    bar_actor.SetHeight(0.64)
+    plot.subplot(0,0)
     plot.enable_anti_aliasing("ssaa")
     plot.enable_lightkit()
     inds_x=np.linspace(xs[0]+2,xs[-1]-2,ngrid).round().astype(int)
@@ -194,7 +286,9 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             amp=np.linalg.norm(vector)
             if amp<minimum_relative_amplitude*max_amp:
                 continue
-            center=(x[ix],y[iy],.035*pitch)
+            # Lift glyphs clear of the intensity plane: the whole ellipse is visible.
+            # This is a graphical displacement, not an optical propagation distance.
+            center=(x[ix],y[iy],(.46+tube_radius_fraction)*pitch)
             # The local 3D polarization ellipse is the image of a unit
             # circle under the real 3x2 matrix [Re(E), Im(E)]. Its singular
             # values are the major and minor semiaxes. If the minor axis
@@ -202,7 +296,25 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             U, singular_values, _ = np.linalg.svd(
                 np.column_stack((vector.real,vector.imag)),
                 full_matrices=False)
-            scale=.36*pitch/amp
+            scale=.44*pitch/amp
+            if glyph_mode != "ellipse":
+                aa, bb, gg = polarization_axes(vector)
+                for name, direction, color in (("alpha",aa,"#e64760"),
+                                                ("beta",bb,"#24b4ef"),
+                                                ("gamma",gg,"#efb52e")):
+                    if glyph_mode not in ("all",name): continue
+                    if not np.all(np.isfinite(direction)) or np.linalg.norm(direction)<1e-8:
+                        continue
+                    d=.40*pitch*direction
+                    if name=="gamma":
+                        mesh=pv.Arrow(start=center,direction=d,scale=float(np.linalg.norm(d)),
+                                      tip_radius=.13,shaft_radius=.045)
+                    else:
+                        mesh=tube(np.stack((np.asarray(center)-d,np.asarray(center)+d)),
+                                  radius=.45*ellipse_radius,closed=False,sides=24)
+                    plot.add_mesh(mesh,color=color,smooth_shading=True,pbr=False,
+                                  ambient=.65,diffuse=.35,specular=0,show_scalar_bar=False)
+                continue
             if singular_values[1] < 1e-5*singular_values[0]:
                 direction=U[:,0]*singular_values[0]*scale
                 line=np.stack((np.asarray(center)-direction,
@@ -212,20 +324,96 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             else:
                 path=ellipse_points(vector,center,scale=scale,samples=72)
                 mesh=tube(path,radius=ellipse_radius,closed=True,sides=24)
-            hand=np.imag(vector[0]*np.conj(vector[1]))
-            hue="#d95f59" if hand>1e-9*amp*amp else (
-                "#348fba" if hand<-1e-9*amp*amp else "#eeeeee")
-            plot.add_mesh(mesh,color=hue,smooth_shading=True,
-                          pbr=True,metallic=.35,roughness=.3,show_scalar_bar=False)
+            ellipticity=singular_values[1]/singular_values[0]
+            spin=np.imag(np.cross(np.conj(vector),vector))/amp**2
+            # Prefer the propagation axis. For almost transverse spin,
+            # use its largest transverse component as an explicit display convention.
+            component = spin[2]
+            if abs(component) < .05*np.linalg.norm(spin):
+                component = spin[np.argmax(np.abs(spin[:2]))]
+            if ellipticity < linear_threshold:
+                hue="#e6e6e6"
+            else:
+                hue="#e64760" if component>0 else "#24b4ef"
+            # Matte color: no metallic environment reflections that can alter hue.
+            plot.add_mesh(mesh, color=hue, smooth_shading=True,
+                          pbr=False, ambient=0.60, diffuse=0.40,
+                          specular=0.0, show_scalar_bar=False)
     # All positions have been expressed in vacuum-wavelength units.
-    plot.show_grid(xlabel="x / λ₀", ylabel="y / λ₀", zlabel="z / λ₀",
-                   color="gray")
-    plot.add_axes()
-    plot.camera_position=[(7,-9,9),(0,0,0),(0,0,1)]
-    plot.camera.zoom(1.15)
-    if screenshot is not None: plot.screenshot(screenshot)
-    if show: plot.show(jupyter_backend="static")
+    # Show actual wavelength coordinates on the focal plane. Set explicit
+    # bounds so nearly-planar geometry does not create tiny/unreadable axes.
+    # The z-coordinate is a display offset, not longitudinal propagation.
+    bounds = (xlim[0], xlim[1], ylim[0], ylim[1],
+              0.0, max(1.1, 0.92+2*tube_radius_fraction)*pitch)
+    if html_path is not None or interactive:
+        # vtk.js can recreate vtkCubeAxesActor grid lines despite grid=False.
+        # Export ordinary mesh geometry instead: two rulers, ticks and text.
+        # No cube-axes actor is present in the browser scene.
+        x0,x1,y0,y1 = bounds[:4]
+        d = max(x1-x0,y1-y0)
+        pad, tick, font = .045*d, .016*d, .031*d
+        z = .002*d
+        def ruler_line(a,b):
+            plot.add_mesh(pv.Line(a,b).tube(radius=.0018*d),
+                          color="black", lighting=False, show_scalar_bar=False)
+        def ruler_text(label,center,height=font):
+            plot.add_mesh(pv.Text3D(label, height=height, depth=0,
+                                   center=center),
+                          color="black", lighting=False, show_scalar_bar=False)
+        xr, yr = x0-pad, y0-pad
+        ruler_line((x0,yr,z),(x1,yr,z))
+        ruler_line((xr,y0,z),(xr,y1,z))
+        for a in np.linspace(x0,x1,5):
+            ruler_line((a,yr,z),(a,yr-tick,z))
+            ruler_text(f"{a:.2g}",(a,yr-2.2*tick-font/2,z))
+        for b in np.linspace(y0,y1,5):
+            ruler_line((xr,b,z),(xr-tick,b,z))
+            ruler_text(f"{b:.2g}",(xr-2.7*tick-font,b,z))
+        ruler_text("x / lambda0",((x0+x1)/2,yr-4*tick-1.5*font,z))
+        ruler_text("y / lambda0",(xr-3*tick-font,y1+2*font,z))
+    else:
+        plot.show_bounds(bounds=bounds, xtitle="x / λ₀", ytitle="y / λ₀",
+                         ztitle="z / λ₀", n_xlabels=5, n_ylabels=5,
+                         n_zlabels=2, location="outer", grid=False, all_edges=False,
+                         color="black", show_zaxis=False)
+    plot.add_axes(line_width=2)
+    midpoint=((xlim[0]+xlim[1])/2, (ylim[0]+ylim[1])/2, 0.0)
+    span=max(xlim[1]-xlim[0],ylim[1]-ylim[0])
+    # Keep y upright, and view the xy plane from +z and -x.
+    # With this camera, the projection of +z points toward screen-right.
+    plot.camera_position=[(midpoint[0]-1.65*span, midpoint[1]+0.20*span,
+                           midpoint[2]+2.5*span), midpoint, (0,1,0)]
+    plot.enable_parallel_projection()
+    plot.reset_camera()
+    plot.camera.zoom(0.87)
+    try:
+        if screenshot is not None:
+            plot.screenshot(screenshot)
+        if html_path is not None:
+            if hasattr(plot, "trame") and hasattr(plot.trame, "export_html"):
+                plot.trame.export_html(str(html_path))
+            else:
+                plot.export_html(str(html_path))
+        if show:
+            if interactive:
+                plot.show(jupyter_backend="html", auto_close=True)
+            else:
+                # Explicit image display works even when Colab is not detected as
+                # Jupyter by PyVista. Never invoke an interactive backend here.
+                from io import BytesIO
+                from PIL import Image as PILImage
+                from IPython.display import Image as DisplayImage, display
+                pixels = plot.screenshot(return_img=True)
+                with BytesIO() as buffer:
+                    PILImage.fromarray(pixels).save(buffer, format="PNG")
+                    display(DisplayImage(data=buffer.getvalue()))
+                plot.close()
+        elif html_path is not None:
+            plot.close()
+    except Exception:
+        plot.close()
+        raise
     return plot
 
 __all__=["tube","curve_mesh","parametric_points","parametric_tube",
-         "plot_tubes","trefoil","torus_knot","ellipse_points","plot_field_ellipses"]
+         "plot_tubes","trefoil","torus_knot","ellipse_points","plot_field_ellipses","polarization_axes","plot_polarization_axes"]
