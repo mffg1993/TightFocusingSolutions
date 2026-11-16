@@ -368,8 +368,19 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             else:
                 plot.export_html(str(html_path))
         if show:
-            plot.show(jupyter_backend="html" if interactive else "static",
-                      auto_close=True)
+            if interactive:
+                plot.show(jupyter_backend="html", auto_close=True)
+            else:
+                # Explicit image display works even when Colab is not detected as
+                # Jupyter by PyVista. Never invoke an interactive backend here.
+                from io import BytesIO
+                from PIL import Image as PILImage
+                from IPython.display import Image as DisplayImage, display
+                pixels = plot.screenshot(return_img=True)
+                with BytesIO() as buffer:
+                    PILImage.fromarray(pixels).save(buffer, format="PNG")
+                    display(DisplayImage(data=buffer.getvalue()))
+                plot.close()
         elif html_path is not None:
             plot.close()
     except Exception:
