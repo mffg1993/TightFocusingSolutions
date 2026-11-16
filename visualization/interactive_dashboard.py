@@ -102,7 +102,7 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
     iy=np.linspace(ys[0]+2,ys[-1]-2,ngrid).round().astype(int)
     pitch=min(x[ix[-1]]-x[ix[0]],y[iy[-1]]-y[iy[0]])/(ngrid-1)
     rad=tube_radius_fraction*pitch
-    normal_display_scale=.44*pitch  # Fixed calibration; retain actual |gamma|.
+    normal_display_scale=.44*pitch  # Fixed length for the unit normal arrows.
     zcenter=max((.44+tube_radius_fraction+.02)*pitch,normal_display_scale+.5*rad)
     groups={k:[] for k in ("linear","positive","negative","alpha","beta","gamma")}
     t=np.linspace(0,2*np.pi,40,endpoint=False)
@@ -127,7 +127,7 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
             for name,d in (("alpha",alpha),("beta",beta),("gamma",gamma)):
                 if not np.isfinite(d).all() or np.linalg.norm(d)<1e-8: continue
                 if name=="gamma":
-                    groups[name].append(_arrow_mesh(center,normal_display_scale*d,.45*rad))
+                    groups[name].append(_arrow_mesh(center,normal_display_scale*d/np.linalg.norm(d),.45*rad))
                 else:
                     d=.44*pitch*d
                     groups[name].append(_arrow_mesh(center-d,2*d,.45*rad))
@@ -206,7 +206,8 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
     sliders=[]
     for key,label,lo,hi,step in settings:
         v=defaults[key]
-        sliders.append(f'<label class="slider"><span>{label} <output id="{key}-value">{v:.4g}</output></span><input type="range" id="{key}" min="{lo:.12g}" max="{hi:.12g}" step="{step}" value="{v:.12g}"></label>')
+        value_label=f"{v:.2f}" if key=="cutoff" else f"{v:.4g}"
+        sliders.append(f'<label class="slider"><span>{label} <output id="{key}-value">{value_label}</output></span><input type="range" id="{key}" min="{lo:.12g}" max="{hi:.12g}" step="{step}" value="{v:.12g}"></label>')
     layout=fig.layout.to_plotly_json()
     normalized=e/np.sqrt(peak)
     data=dict(x=x.tolist(),y=y.tolist(),I=I.ravel().tolist(),
@@ -231,7 +232,7 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
           +''.join(sliders)+'</div><div class="actions"><label><input type="checkbox" id="sync-cameras" checked> Synchronize cameras</label>'
           '<button id="reset-controls">Reset defaults</button><span id="slider-status" role="status"></span></div></div>'
           '<div class="controls">'+''.join(controls)+'</div>'+fragment
-          +'<small>Red/blue: signed spin convention; gray: nearly linear. Major/minor arrowheads indicate a chosen positive endpoint (the simultaneous sign is phase-convention dependent); both axes are masked at circular states. The normal is normalized electric spin with its physical relative magnitude preserved and a fixed display calibration, independent of sliders. Glyph height is a display offset. All sliders resample the exported numerical field; no optical propagation is recalculated.</small>'
+          +'<small>Red/blue: signed spin convention; gray: nearly linear. Major/minor arrowheads indicate a chosen positive endpoint (the simultaneous sign is phase-convention dependent); both axes are masked at circular states. The magenta arrow is a unit normal oriented along normalized electric spin, with a constant display length independent of sliders. No arrow is shown when the spin is zero (linear polarization). Arrow length does not represent spin magnitude. Glyph height is a display offset. All sliders resample the exported numerical field; no optical propagation is recalculated.</small>'
           +'<script>window.POLARIZATION_DATA='+payload+';</script><script>'+js+'</script></body></html>')
     Path(html_path).write_text(html,encoding="utf-8")
     return Path(html_path)
