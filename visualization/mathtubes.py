@@ -296,8 +296,10 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     plot.add_axes(line_width=2)
     midpoint=((xlim[0]+xlim[1])/2, (ylim[0]+ylim[1])/2, 0.0)
     span=max(xlim[1]-xlim[0],ylim[1]-ylim[0])
-    plot.camera_position=[(midpoint[0]+1.27*span, midpoint[1]-1.83*span,
-                           midpoint[2]+2.5*span), midpoint, (0,0,1)]
+    # Keep y upright, and view the xy plane from +z and -x.
+    # With this camera, the projection of +z points toward screen-right.
+    plot.camera_position=[(midpoint[0]-1.65*span, midpoint[1]+0.20*span,
+                           midpoint[2]+2.5*span), midpoint, (0,1,0)]
     plot.enable_parallel_projection()
     plot.reset_camera()
     plot.camera.zoom(0.87)
