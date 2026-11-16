@@ -122,8 +122,8 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
                 groups[name].append(_arrow_mesh(center,d,.45*rad) if name=="gamma"
                                     else _tube_mesh([center-d,center+d],.45*rad))
 
-    fig=make_subplots(rows=1,cols=2,specs=[[{"type":"scene"},{"type":"scene"}]],
-                      subplot_titles=("Polarization ellipses","Polarization axes"),horizontal_spacing=.09)
+    fig=make_subplots(rows=2,cols=1,specs=[[{"type":"scene"}],[{"type":"scene"}]],
+                      subplot_titles=("Polarization ellipses","Polarization axes"),vertical_spacing=.08)
     indices={}
     # Keep WebGL data bounded even when the underlying field uses a fine grid.
     xx=xs[::max(1,len(xs)//120)]; yy=ys[::max(1,len(ys)//120)]
@@ -133,9 +133,9 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
         fig.add_trace(go.Surface(x=x[xx],y=y[yy],z=np.zeros((len(yy),len(xx))),
                                  surfacecolor=I[np.ix_(yy,xx)],colorscale="Viridis",
                                  cmin=0,cmax=1,showscale=True,showlegend=False,
-                                 colorbar=dict(x=.44 if col==1 else 1.01,len=.65,thickness=12,title="I/Imax"),
+                                 colorbar=dict(x=1.01,y=.77 if col==1 else .23,len=.34,thickness=14,title="I/Imax"),
                                  lighting=dict(ambient=1,diffuse=0,specular=0),
-                                 hoverinfo="skip",name="Intensity"),row=1,col=col)
+                                 hoverinfo="skip",name="Intensity"),row=col,col=1)
     colors={"linear":"#bfc4cb","positive":"#e64760","negative":"#24b4ef",
             "alpha":"#20ae57","beta":"#ff941f","gamma":"#d928cf"}
     labels={"linear":"Linear","positive":"Positive","negative":"Negative",
@@ -153,7 +153,7 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
                                 z=v[:,2].astype("float32"),i=f[:,0],j=f[:,1],k=f[:,2],
                                 color=colors[key],name=labels[key],showlegend=False,hoverinfo="skip",
                                 lighting=dict(ambient=.65,diffuse=.35,specular=0,roughness=1),
-                                flatshading=False),row=1,col=col)
+                                flatshading=False),row=col,col=1)
     # Explicit ranges keep the camera and wavelength rulers stable when traces hide.
     zmax=max(1.1,.92+2*tube_radius_fraction)*pitch
     cam=dict(eye=dict(x=-1.0,y=.12,z=1.6),up=dict(x=0,y=1,z=0),
@@ -167,7 +167,7 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
                    y=(ylim[1]-ylim[0]),z=zmax+.1*pitch),
                camera=cam,bgcolor="white",dragmode="orbit",uirevision="keep-camera")
     fig.update_layout(scene=scene,scene2=scene,margin=dict(l=15,r=65,t=45,b=10),
-                      paper_bgcolor="white",height=650,showlegend=False)
+                      paper_bgcolor="white",height=1250,showlegend=False)
     fragment=fig.to_html(full_html=False,include_plotlyjs=True,div_id="polarization-scenes",
                          config={"responsive":True,"displaylogo":False})
     import json
@@ -188,6 +188,6 @@ document.querySelectorAll('input[data-key]').forEach(box=>{
   });
 });
 </script>""".replace("TRACE_GROUPS",json.dumps(indices))
-    html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escape(title or "Polarization explorer")+'</title><style>body{font:15px system-ui,sans-serif;margin:18px;color:#202124;background:white}h2{margin:0 0 10px}.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}.controls section{border:1px solid #ddd;border-radius:8px;padding:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}label{cursor:pointer;white-space:nowrap}small{display:block;color:#555;margin-top:10px}@media(max-width:700px){.controls{grid-template-columns:1fr}}</style></head><body><h2>'+escape(title or "Polarization explorer")+'</h2><div class="controls">'+''.join(controls)+'</div>'+fragment+'<small>Red/blue: signed spin convention; gray: nearly linear. Major/minor axes are directors and masked at circular states. Normal is normalized electric spin. Glyph height is a display offset.</small>'+script+'</body></html>'
+    html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escape(title or "Polarization explorer")+'</title><style>body{font:15px system-ui,sans-serif;margin:18px auto;padding:0 18px;max-width:1100px;color:#202124;background:white}h2{margin:0 0 10px}.controls{display:grid;grid-template-columns:1fr;gap:8px}.controls section{border:1px solid #ddd;border-radius:8px;padding:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}label{cursor:pointer;white-space:nowrap}small{display:block;color:#555;margin-top:10px}@media(max-width:700px){.controls{grid-template-columns:1fr}}</style></head><body><h2>'+escape(title or "Polarization explorer")+'</h2><div class="controls">'+''.join(controls)+'</div>'+fragment+'<small>Red/blue: signed spin convention; gray: nearly linear. Major/minor axes are directors and masked at circular states. Normal is normalized electric spin. Glyph height is a display offset.</small>'+script+'</body></html>'
     Path(html_path).write_text(html,encoding="utf-8")
     return Path(html_path)
