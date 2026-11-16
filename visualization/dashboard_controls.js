@@ -74,7 +74,8 @@ async function rebuild(){
    // Retain both semiaxes, with an arrowhead at the chosen positive endpoint.
    const v=mul(d[name],s.scale*pitch);if(norm(v)>1e-9)arrow(groups[name],sub(center,v),mul(v,2),.45*radius);
   }
-  const v=mul(g,normalScale);if(norm(v)>1e-9)arrow(groups.gamma,center,v,.45*radius);
+  // A unit normal encodes direction only; suppress undefined normals at linear states.
+  if(norm(g)>1e-8)arrow(groups.gamma,center,mul(unit(g),normalScale),.45*radius);
  }
  const xx=xs.filter((_,k)=>k%Math.max(1,Math.ceil(xs.length/120))===0||k===xs.length-1),yy=ys.filter((_,k)=>k%Math.max(1,Math.ceil(ys.length/120))===0||k===ys.length-1);
  const I=yy.map(j=>xx.map(i=>P.I[j*P.x.length+i])),zero=yy.map(()=>xx.map(()=>0));
@@ -91,7 +92,7 @@ async function rebuild(){
  }catch(err){$("slider-status").textContent="Update failed: "+err.message;console.error(err)}finally{busy=false;if(pending){pending=false;rebuild()}}
 }
 let timer;function schedule(){clearTimeout(timer);timer=setTimeout(rebuild,180)}
-for(const k of Object.keys(fields)){$(k).addEventListener("input",()=>{$(k+"-value").textContent=$(k).value;schedule()})}
+for(const k of Object.keys(fields)){$(k).addEventListener("input",()=>{$(k+"-value").textContent=k==="cutoff"?Number($(k).value).toFixed(2):$(k).value;schedule()})}
 document.querySelectorAll("input[data-key]").forEach(box=>box.addEventListener("change",()=>{const i=window.polarizationTraceIndices?.[box.dataset.key];if(i!==undefined)Plotly.restyle(gd,{visible:box.checked},[i]);else schedule()}));
 $("reset-controls").onclick=()=>{for(const k of Object.keys(fields)){$(k).value=P.defaults[k];$(k+"-value").textContent=$(k).value}document.querySelectorAll("input[data-key]").forEach(e=>e.checked=true);$("sync-cameras").checked=true;initial=true;schedule()};
 function syncCamera(evt){if(syncing||!$("sync-cameras").checked)return;for(const key of ["scene","scene2"]){if(Object.keys(evt).some(k=>k===key+".camera"||k.startsWith(key+".camera."))){const camera=evt[key+".camera"]||gd.layout[key].camera;syncing=true;Plotly.relayout(gd,{[(key==="scene"?"scene2":"scene")+".camera"]:camera}).finally(()=>{syncing=false});break}}}
