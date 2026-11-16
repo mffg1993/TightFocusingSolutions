@@ -67,13 +67,13 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
                                   xlim=None,ylim=None,tube_radius_fraction=.065,
                                   auto_roi=True,roi_threshold=.05,
                                   minimum_relative_amplitude=.03,linear_threshold=.03,
-                                  **unused):
+                                  intensity_threshold=.3, **unused):
     """Write an offline HTML dashboard; all checkboxes act locally in the browser."""
     e=np.asarray(field,complex); x=np.asarray(x,float); y=np.asarray(y,float)
     if e.shape!=(3,len(y),len(x)) or not np.isfinite(e).all():
         raise ValueError("field must be finite with shape (3, len(y), len(x))")
     if ngrid<2 or tube_radius_fraction<=0: raise ValueError("invalid glyph geometry")
-    if not 0<roi_threshold<=1 or not 0<=minimum_relative_amplitude<1 or not 0<=linear_threshold<1:
+    if not 0<roi_threshold<=1 or not 0<=minimum_relative_amplitude<1 or not 0<=linear_threshold<1 or not 0<=intensity_threshold<=1:
         raise ValueError("invalid thresholds")
     I=np.sum(abs(e)**2,axis=0); peak=float(I.max())
     if peak<=0: raise ValueError("field is identically zero")
@@ -89,6 +89,12 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
     xlim=bounds(x,ix_sig,xlim); ylim=bounds(y,iy_sig,ylim)
     if len(xlim)!=2 or len(ylim)!=2 or not np.isfinite((*xlim,*ylim)).all() or xlim[0]>=xlim[1] or ylim[0]>=ylim[1]:
         raise ValueError("invalid limits")
+    # The explorer uses a single origin-centered square viewport.
+    limit_max=float(min(-x[0],x[-1],-y[0],y[-1]))
+    if limit_max<=0:
+        raise ValueError("The shared x/y limit requires a grid spanning the origin")
+    limit=min(limit_max,max(abs(v) for v in (*xlim,*ylim)))
+    xlim=ylim=(-limit,limit)
     xs=np.flatnonzero((x>=xlim[0])&(x<=xlim[1]))
     ys=np.flatnonzero((y>=ylim[0])&(y<=ylim[1]))
     if min(len(xs),len(ys))<ngrid+2: raise ValueError("not enough samples in requested region")
@@ -96,13 +102,15 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
     iy=np.linspace(ys[0]+2,ys[-1]-2,ngrid).round().astype(int)
     pitch=min(x[ix[-1]]-x[ix[0]],y[iy[-1]]-y[iy[0]])/(ngrid-1)
     rad=tube_radius_fraction*pitch
+    normal_display_scale=.44*pitch  # Fixed calibration; retain actual |gamma|.
+    zcenter=max((.44+tube_radius_fraction+.02)*pitch,normal_display_scale+.5*rad)
     groups={k:[] for k in ("linear","positive","negative","alpha","beta","gamma")}
     t=np.linspace(0,2*np.pi,40,endpoint=False)
     for j in iy:
         for i in ix:
             v=e[:,j,i]; amp=np.linalg.norm(v)
-            if amp==0 or amp<minimum_relative_amplitude*np.sqrt(peak): continue
-            center=np.array([x[i],y[j],(.46+tube_radius_fraction)*pitch])
+            if amp==0 or I[j,i]<intensity_threshold: continue
+            center=np.array([x[i],y[j],zcenter])
             u,s,_=np.linalg.svd(np.column_stack((v.real,v.imag)),full_matrices=False)
             ellipticity=s[1]/s[0]
             spin=np.imag(np.cross(v.conj(),v))/amp**2
@@ -118,9 +126,11 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
             alpha,beta,gamma=polarization_axes(v)
             for name,d in (("alpha",alpha),("beta",beta),("gamma",gamma)):
                 if not np.isfinite(d).all() or np.linalg.norm(d)<1e-8: continue
-                d=.40*pitch*d
-                groups[name].append(_arrow_mesh(center,d,.45*rad) if name=="gamma"
-                                    else _tube_mesh([center-d,center+d],.45*rad))
+                if name=="gamma":
+                    groups[name].append(_arrow_mesh(center,normal_display_scale*d,.45*rad))
+                else:
+                    d=.44*pitch*d
+                    groups[name].append(_arrow_mesh(center-d,2*d,.45*rad))
 
     fig=make_subplots(rows=2,cols=1,specs=[[{"type":"scene"}],[{"type":"scene"}]],
                       subplot_titles=("Polarization ellipses","Polarization axes"),vertical_spacing=.08)
@@ -155,7 +165,7 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
                                 lighting=dict(ambient=.65,diffuse=.35,specular=0,roughness=1),
                                 flatshading=False),row=col,col=1)
     # Explicit ranges keep the camera and wavelength rulers stable when traces hide.
-    zmax=max(1.1,.92+2*tube_radius_fraction)*pitch
+    zmax=zcenter+max(.44*pitch,normal_display_scale)+2*rad+.02*pitch
     cam=dict(eye=dict(x=-1.0,y=.12,z=1.6),up=dict(x=0,y=1,z=0),
              projection=dict(type="orthographic"))
     axis_style=dict(showgrid=False,zeroline=False,showbackground=False,showspikes=False,
@@ -181,20 +191,17 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
         controls.append(f'<section><strong>{heading}</strong> {" ".join(entries)}</section>')
     # Normalize once to peak amplitude before serializing. All browser operations
     # are on the original sampled complex field (not on precomputed glyphs).
-    defaults=dict(xmin=xlim[0],xmax=xlim[1],ymin=ylim[0],ymax=ylim[1],
+    defaults=dict(limit=limit,
                   density=int(ngrid),thickness=float(tube_radius_fraction),
-                  scale=.44,opacity=1.,cutoff=float(minimum_relative_amplitude),
+                  scale=.44,opacity=1.,cutoff=float(intensity_threshold),
                   linear=float(linear_threshold))
     settings=[
-        ("xmin","x minimum (λ₀)",x[0],x[-1],.005),
-        ("xmax","x maximum (λ₀)",x[0],x[-1],.005),
-        ("ymin","y minimum (λ₀)",y[0],y[-1],.005),
-        ("ymax","y maximum (λ₀)",y[0],y[-1],.005),
+        ("limit","Shared x/y half-width (λ₀)",min(limit,max(np.min(np.diff(x)),np.min(np.diff(y)))),limit_max,.005),
         ("density","Ellipses per side",2,max(20,ngrid),1),
         ("thickness","Tube radius / spacing",.005,max(.15,tube_radius_fraction),.005),
         ("scale","Glyph size / spacing",.10,.75,.01),
         ("opacity","Intensity opacity",0,1,.05),
-        ("cutoff","Minimum relative field amplitude",0,max(.5,minimum_relative_amplitude),.005),
+        ("cutoff","Minimum relative intensity (I/Imax)",0,1,.01),
         ("linear","Linear ellipticity threshold",0,max(.3,linear_threshold),.005)]
     sliders=[]
     for key,label,lo,hi,step in settings:
@@ -204,7 +211,7 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
     normalized=e/np.sqrt(peak)
     data=dict(x=x.tolist(),y=y.tolist(),I=I.ravel().tolist(),
               re=normalized.real.reshape(3,-1).tolist(),im=normalized.imag.reshape(3,-1).tolist(),
-              defaults=defaults,layout=layout)
+              defaults=defaults,layout=layout,normal_display_scale=normal_display_scale)
     from plotly.utils import PlotlyJSONEncoder
     payload=json.dumps(data,cls=PlotlyJSONEncoder,separators=(",",":"),allow_nan=False)
     js=Path(__file__).with_name("dashboard_controls.js").read_text(encoding="utf-8")
@@ -224,7 +231,7 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
           +''.join(sliders)+'</div><div class="actions"><label><input type="checkbox" id="sync-cameras" checked> Synchronize cameras</label>'
           '<button id="reset-controls">Reset defaults</button><span id="slider-status" role="status"></span></div></div>'
           '<div class="controls">'+''.join(controls)+'</div>'+fragment
-          +'<small>Red/blue: signed spin convention; gray: nearly linear. Major/minor axes are directors and masked at circular states. Normal is normalized electric spin. Glyph height is a display offset. All sliders resample the exported numerical field; no optical propagation is recalculated.</small>'
+          +'<small>Red/blue: signed spin convention; gray: nearly linear. Major/minor arrowheads indicate a chosen positive endpoint (the simultaneous sign is phase-convention dependent); both axes are masked at circular states. The normal is normalized electric spin with its physical relative magnitude preserved and a fixed display calibration, independent of sliders. Glyph height is a display offset. All sliders resample the exported numerical field; no optical propagation is recalculated.</small>'
           +'<script>window.POLARIZATION_DATA='+payload+';</script><script>'+js+'</script></body></html>')
     Path(html_path).write_text(html,encoding="utf-8")
     return Path(html_path)
