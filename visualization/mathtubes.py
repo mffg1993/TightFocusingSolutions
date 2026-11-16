@@ -347,7 +347,7 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
               0.0, max(1.1, 0.92+2*tube_radius_fraction)*pitch)
     plot.show_bounds(bounds=bounds, xtitle="x / λ₀", ytitle="y / λ₀",
                      ztitle="z / λ₀", n_xlabels=5, n_ylabels=5,
-                     n_zlabels=2, location="outer", all_edges=True,
+                     n_zlabels=2, location="outer", grid=False, all_edges=False,
                      color="black", show_zaxis=False)
     plot.add_axes(line_width=2)
     midpoint=((xlim[0]+xlim[1])/2, (ylim[0]+ylim[1])/2, 0.0)
@@ -359,15 +359,22 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     plot.enable_parallel_projection()
     plot.reset_camera()
     plot.camera.zoom(0.87)
-    if screenshot is not None:
-        plot.screenshot(screenshot)
-    if html_path is not None:
-        if hasattr(plot, "trame") and hasattr(plot.trame, "export_html"):
-            plot.trame.export_html(str(html_path))
-        else:
-            plot.export_html(str(html_path))
-    if show:
-        plot.show(jupyter_backend="html" if interactive else "static")
+    try:
+        if screenshot is not None:
+            plot.screenshot(screenshot)
+        if html_path is not None:
+            if hasattr(plot, "trame") and hasattr(plot.trame, "export_html"):
+                plot.trame.export_html(str(html_path))
+            else:
+                plot.export_html(str(html_path))
+        if show:
+            plot.show(jupyter_backend="html" if interactive else "static",
+                      auto_close=True)
+        elif html_path is not None:
+            plot.close()
+    except Exception:
+        plot.close()
+        raise
     return plot
 
 __all__=["tube","curve_mesh","parametric_points","parametric_tube",
