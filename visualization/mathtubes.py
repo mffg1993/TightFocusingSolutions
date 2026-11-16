@@ -138,6 +138,36 @@ def ellipse_points(field: np.ndarray, center: tuple[float,float,float],
         e.real[None,:]*np.cos(t[:,None])+
         e.imag[None,:]*np.sin(t[:,None]))
 
+def polarization_axes(field, *, circular_tolerance=1e-8):
+    """Return normalized semiaxes alpha, beta and spin normal gamma.
+
+    Component axis is first (3, ...). Convention exp(-i omega t).
+    alpha/beta are directors and undefined at circular states; gamma is
+    Im(conj(E) cross E)/|E|^2 = 2 alpha cross beta away from circularity.
+    Zero-field sites are NaN. Reference: Bliokh, Alonso & Dennis (2019),
+    doi:10.1088/1361-6633/ab4415, Eq. (18).
+    """
+    e = np.asarray(field, dtype=complex)
+    if e.ndim < 1 or e.shape[0] != 3:
+        raise ValueError("field must have shape (3, ...)")
+    intensity = np.sum(abs(e)**2, axis=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        u = e / np.sqrt(intensity)
+    q = np.sum(u*u, axis=0)
+    rectified = u*np.exp(-0.5j*np.angle(q))
+    alpha, beta = rectified.real.copy(), rectified.imag.copy()
+    circular = abs(q) <= circular_tolerance
+    alpha = np.where(circular[None,...], np.nan, alpha)
+    beta = np.where(circular[None,...], np.nan, beta)
+    gamma = np.imag(np.cross(u.conj(),u,axisa=0,axisb=0,axisc=0))
+    return alpha, beta, gamma
+
+
+def plot_polarization_axes(field, x, y, *, component="all", **kwargs):
+    """Plot alpha/beta directors and/or the directed gamma spin vector."""
+    return plot_field_ellipses(field,x,y,glyph_mode=component,**kwargs)
+
+
 def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                         *, ngrid: int = 8, roi: float = 1.5,
                         xlim: tuple[float, float] | None = None,
@@ -147,6 +177,7 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                         auto_roi: bool = True,
                         roi_threshold: float = 0.05,
                         linear_threshold: float = 0.03,
+                        glyph_mode: str = 'ellipse',
                         screenshot: str | None = None,
                         off_screen: bool = True, size: tuple[int,int] = (1100,900),
                         show: bool = True) -> pv.Plotter:
@@ -156,10 +187,9 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     Ellipse sizes are *locally normalized for legibility*. Consequently,
     ellipse size must NOT be interpreted as measured field amplitude.
     The continuous background carries the intensity information.
-    Color distinguishes full 3D ellipticity (minor/major semiaxis ratio):
-    gray for nearly linear, red/blue for nonzero signed transverse spin
-    (Im(Ex*conj(Ey))), and orange for elliptical states with negligible
-    transverse spin projection. The colors do not define 3D helicity.
+    Gray marks nearly linear polarization. Red/blue mark positive/negative
+    gamma_z, falling back to the dominant transverse component at near-zero
+    gamma_z. The fallback is a display convention, not helicity.
     Sites below minimum_relative_amplitude times the global peak amplitude
     are omitted. Unspecified limits are automatically selected from the
     roi_threshold fraction of peak intensity, with padding, capped by roi.
@@ -169,6 +199,8 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     x=np.asarray(x,dtype=float);y=np.asarray(y,dtype=float)
     if e.shape!=(3,len(y),len(x)):
         raise ValueError("field shape must be (3, len(y), len(x))")
+    if glyph_mode not in ('ellipse','all','alpha','beta','gamma'):
+        raise ValueError('Unknown glyph_mode')
     if ngrid<2: raise ValueError("ngrid must be >=2")
     if tube_radius_fraction<=0: raise ValueError("tube_radius_fraction must be positive")
     if not np.all(np.isfinite(e)): raise ValueError("field is not finite")
@@ -260,6 +292,24 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                 np.column_stack((vector.real,vector.imag)),
                 full_matrices=False)
             scale=.44*pitch/amp
+            if glyph_mode != "ellipse":
+                aa, bb, gg = polarization_axes(vector)
+                for name, direction, color in (("alpha",aa,"#e64760"),
+                                                ("beta",bb,"#24b4ef"),
+                                                ("gamma",gg,"#efb52e")):
+                    if glyph_mode not in ("all",name): continue
+                    if not np.all(np.isfinite(direction)) or np.linalg.norm(direction)<1e-8:
+                        continue
+                    d=.40*pitch*direction
+                    if name=="gamma":
+                        mesh=pv.Arrow(start=center,direction=d,scale=float(np.linalg.norm(d)),
+                                      tip_radius=.13,shaft_radius=.045)
+                    else:
+                        mesh=tube(np.stack((np.asarray(center)-d,np.asarray(center)+d)),
+                                  radius=.45*ellipse_radius,closed=False,sides=24)
+                    plot.add_mesh(mesh,color=color,smooth_shading=True,pbr=False,
+                                  ambient=.65,diffuse=.35,specular=0,show_scalar_bar=False)
+                continue
             if singular_values[1] < 1e-5*singular_values[0]:
                 direction=U[:,0]*singular_values[0]*scale
                 line=np.stack((np.asarray(center)-direction,
@@ -270,15 +320,16 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                 path=ellipse_points(vector,center,scale=scale,samples=72)
                 mesh=tube(path,radius=ellipse_radius,closed=True,sides=24)
             ellipticity=singular_values[1]/singular_values[0]
-            spin=2*np.imag(np.cross(np.conj(vector),vector))/amp**2
-            # Retain the existing Im(Ex Ey*) sign convention for red/blue.
-            transverse=-spin[2]/2
+            spin=np.imag(np.cross(np.conj(vector),vector))/amp**2
+            # Prefer the propagation axis. For almost transverse spin,
+            # use its largest transverse component as an explicit display convention.
+            component = spin[2]
+            if abs(component) < .05*np.linalg.norm(spin):
+                component = spin[np.argmax(np.abs(spin[:2]))]
             if ellipticity < linear_threshold:
                 hue="#e6e6e6"
-            elif abs(spin[2]) < 0.05*np.linalg.norm(spin):
-                hue="#ff9825"
             else:
-                hue="#e64760" if transverse>0 else "#24b4ef"
+                hue="#e64760" if component>0 else "#24b4ef"
             # Matte color: no metallic environment reflections that can alter hue.
             plot.add_mesh(mesh, color=hue, smooth_shading=True,
                           pbr=False, ambient=0.60, diffuse=0.40,
@@ -308,4 +359,4 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     return plot
 
 __all__=["tube","curve_mesh","parametric_points","parametric_tube",
-         "plot_tubes","trefoil","torus_knot","ellipse_points","plot_field_ellipses"]
+         "plot_tubes","trefoil","torus_knot","ellipse_points","plot_field_ellipses","polarization_axes","plot_polarization_axes"]
