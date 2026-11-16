@@ -345,10 +345,37 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     # The z-coordinate is a display offset, not longitudinal propagation.
     bounds = (xlim[0], xlim[1], ylim[0], ylim[1],
               0.0, max(1.1, 0.92+2*tube_radius_fraction)*pitch)
-    plot.show_bounds(bounds=bounds, xtitle="x / λ₀", ytitle="y / λ₀",
-                     ztitle="z / λ₀", n_xlabels=5, n_ylabels=5,
-                     n_zlabels=2, location="outer", grid=False, all_edges=False,
-                     color="black", show_zaxis=False)
+    if html_path is not None or interactive:
+        # vtk.js can recreate vtkCubeAxesActor grid lines despite grid=False.
+        # Export ordinary mesh geometry instead: two rulers, ticks and text.
+        # No cube-axes actor is present in the browser scene.
+        x0,x1,y0,y1 = bounds[:4]
+        d = max(x1-x0,y1-y0)
+        pad, tick, font = .045*d, .016*d, .031*d
+        z = .002*d
+        def ruler_line(a,b):
+            plot.add_mesh(pv.Line(a,b).tube(radius=.0018*d),
+                          color="black", lighting=False, show_scalar_bar=False)
+        def ruler_text(label,center,height=font):
+            plot.add_mesh(pv.Text3D(label, height=height, depth=0,
+                                   center=center),
+                          color="black", lighting=False, show_scalar_bar=False)
+        xr, yr = x0-pad, y0-pad
+        ruler_line((x0,yr,z),(x1,yr,z))
+        ruler_line((xr,y0,z),(xr,y1,z))
+        for a in np.linspace(x0,x1,5):
+            ruler_line((a,yr,z),(a,yr-tick,z))
+            ruler_text(f"{a:.2g}",(a,yr-2.2*tick-font/2,z))
+        for b in np.linspace(y0,y1,5):
+            ruler_line((xr,b,z),(xr-tick,b,z))
+            ruler_text(f"{b:.2g}",(xr-2.7*tick-font,b,z))
+        ruler_text("x / lambda0",((x0+x1)/2,yr-4*tick-1.5*font,z))
+        ruler_text("y / lambda0",(xr-3*tick-font,y1+2*font,z))
+    else:
+        plot.show_bounds(bounds=bounds, xtitle="x / λ₀", ytitle="y / λ₀",
+                         ztitle="z / λ₀", n_xlabels=5, n_ylabels=5,
+                         n_zlabels=2, location="outer", grid=False, all_edges=False,
+                         color="black", show_zaxis=False)
     plot.add_axes(line_width=2)
     midpoint=((xlim[0]+xlim[1])/2, (ylim[0]+ylim[1])/2, 0.0)
     span=max(xlim[1]-xlim[0],ylim[1]-ylim[0])
