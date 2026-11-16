@@ -179,15 +179,52 @@ def export_polarization_dashboard(field,x,y,html_path,*,title="",ngrid=8,roi=1.5
             col=colors.get(k,"#555555")
             entries.append(f'<label><input type="checkbox" data-key="{k}" checked> <span style="color:{col}">{label}</span></label>')
         controls.append(f'<section><strong>{heading}</strong> {" ".join(entries)}</section>')
-    script="""<script>
-const traceGroups=TRACE_GROUPS;
-document.querySelectorAll('input[data-key]').forEach(box=>{
-  box.addEventListener('change',()=>{
-    const id=traceGroups[box.dataset.key];
-    if(id && id.length) Plotly.restyle('polarization-scenes',{visible:box.checked},id);
-  });
-});
-</script>""".replace("TRACE_GROUPS",json.dumps(indices))
-    html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escape(title or "Polarization explorer")+'</title><style>body{font:15px system-ui,sans-serif;margin:18px auto;padding:0 18px;max-width:1100px;color:#202124;background:white}h2{margin:0 0 10px}.controls{display:grid;grid-template-columns:1fr;gap:8px}.controls section{border:1px solid #ddd;border-radius:8px;padding:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}label{cursor:pointer;white-space:nowrap}small{display:block;color:#555;margin-top:10px}@media(max-width:700px){.controls{grid-template-columns:1fr}}</style></head><body><h2>'+escape(title or "Polarization explorer")+'</h2><div class="controls">'+''.join(controls)+'</div>'+fragment+'<small>Red/blue: signed spin convention; gray: nearly linear. Major/minor axes are directors and masked at circular states. Normal is normalized electric spin. Glyph height is a display offset.</small>'+script+'</body></html>'
+    # Normalize once to peak amplitude before serializing. All browser operations
+    # are on the original sampled complex field (not on precomputed glyphs).
+    defaults=dict(xmin=xlim[0],xmax=xlim[1],ymin=ylim[0],ymax=ylim[1],
+                  density=int(ngrid),thickness=float(tube_radius_fraction),
+                  scale=.44,opacity=1.,cutoff=float(minimum_relative_amplitude),
+                  linear=float(linear_threshold))
+    settings=[
+        ("xmin","x minimum (λ₀)",x[0],x[-1],.005),
+        ("xmax","x maximum (λ₀)",x[0],x[-1],.005),
+        ("ymin","y minimum (λ₀)",y[0],y[-1],.005),
+        ("ymax","y maximum (λ₀)",y[0],y[-1],.005),
+        ("density","Ellipses per side",2,max(20,ngrid),1),
+        ("thickness","Tube radius / spacing",.005,max(.15,tube_radius_fraction),.005),
+        ("scale","Glyph size / spacing",.10,.75,.01),
+        ("opacity","Intensity opacity",0,1,.05),
+        ("cutoff","Minimum relative field amplitude",0,max(.5,minimum_relative_amplitude),.005),
+        ("linear","Linear ellipticity threshold",0,max(.3,linear_threshold),.005)]
+    sliders=[]
+    for key,label,lo,hi,step in settings:
+        v=defaults[key]
+        sliders.append(f'<label class="slider"><span>{label} <output id="{key}-value">{v:.4g}</output></span><input type="range" id="{key}" min="{lo:.12g}" max="{hi:.12g}" step="{step}" value="{v:.12g}"></label>')
+    layout=fig.layout.to_plotly_json()
+    normalized=e/np.sqrt(peak)
+    data=dict(x=x.tolist(),y=y.tolist(),I=I.ravel().tolist(),
+              re=normalized.real.reshape(3,-1).tolist(),im=normalized.imag.reshape(3,-1).tolist(),
+              defaults=defaults,layout=layout)
+    from plotly.utils import PlotlyJSONEncoder
+    payload=json.dumps(data,cls=PlotlyJSONEncoder,separators=(",",":"),allow_nan=False)
+    js=Path(__file__).with_name("dashboard_controls.js").read_text(encoding="utf-8")
+    html=('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'
+          +escape(title or "Polarization explorer")+'</title><style>'
+          'body{font:15px system-ui,sans-serif;margin:18px auto;padding:0 18px;max-width:1100px;color:#202124;background:white}'
+          'h2{margin:0 0 10px}.controls{display:grid;grid-template-columns:1fr;gap:8px}'
+          '.controls section,.slider-panel{border:1px solid #ddd;border-radius:8px;padding:12px}'
+          '.controls section{display:flex;gap:12px;align-items:center;flex-wrap:wrap}'
+          '.sliders{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px}'
+          '.slider{display:flex;flex-direction:column;gap:4px}.slider span{display:flex;justify-content:space-between;gap:6px}'
+          'output{font-variant-numeric:tabular-nums;color:#555}input[type=range]{width:100%;accent-color:#4669a9}'
+          'label{cursor:pointer}button{padding:6px 12px;cursor:pointer}small{display:block;color:#555;margin-top:10px}'
+          '.actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:12px}'
+          '@media(max-width:620px){.sliders{grid-template-columns:1fr}}</style></head><body><h2>'
+          +escape(title or "Polarization explorer")+'</h2><div class="slider-panel"><div class="sliders">'
+          +''.join(sliders)+'</div><div class="actions"><label><input type="checkbox" id="sync-cameras" checked> Synchronize cameras</label>'
+          '<button id="reset-controls">Reset defaults</button><span id="slider-status" role="status"></span></div></div>'
+          '<div class="controls">'+''.join(controls)+'</div>'+fragment
+          +'<small>Red/blue: signed spin convention; gray: nearly linear. Major/minor axes are directors and masked at circular states. Normal is normalized electric spin. Glyph height is a display offset. All sliders resample the exported numerical field; no optical propagation is recalculated.</small>'
+          +'<script>window.POLARIZATION_DATA='+payload+';</script><script>'+js+'</script></body></html>')
     Path(html_path).write_text(html,encoding="utf-8")
     return Path(html_path)
