@@ -43,23 +43,25 @@ function decompose(re,im){
 }
 function range(axis,lo,hi){return axis.map((v,i)=>v>=lo-1e-10&&v<=hi+1e-10?i:-1).filter(i=>i>=0)}
 function sites(indices,n){const pad=indices.length>=n+4?2:0;return Array.from({length:n},(_,i)=>Math.round(indices[pad]+i*(indices[indices.length-1-pad]-indices[pad])/(n-1)))}
-const fields={xmin:"x minimum",xmax:"x maximum",ymin:"y minimum",ymax:"y maximum",density:"Ellipses per side",thickness:"Tube radius / spacing",scale:"Glyph size / spacing",opacity:"Intensity opacity",cutoff:"Minimum field amplitude",linear:"Linear ellipticity threshold"};
+const fields={limit:"Shared x/y half-width",density:"Ellipses per side",thickness:"Tube radius / spacing",scale:"Glyph size / spacing",opacity:"Intensity opacity",cutoff:"Minimum relative intensity",linear:"Linear ellipticity threshold"};
 const state=()=>Object.fromEntries(Object.keys(fields).map(k=>[k,Number($(k).value)]));
 function visibility(k){const e=document.querySelector('input[data-key="'+k+'"]');return !e||e.checked}
 let busy=false,pending=false,initial=true,syncing=false;
 async function rebuild(){
  if(busy){pending=true;return}busy=true;
  try{
- const s=state(),xs=range(P.x,s.xmin,s.xmax),ys=range(P.y,s.ymin,s.ymax);
+ const s=state(),xs=range(P.x,-s.limit,s.limit),ys=range(P.y,-s.limit,s.limit);
  const n=Math.min(s.density,xs.length,ys.length);
- if(s.xmin>=s.xmax||s.ymin>=s.ymax||n<2){$("slider-status").textContent="Select increasing limits containing at least two grid samples.";return}
+ if(s.limit<=0||n<2){$("slider-status").textContent="Select increasing limits containing at least two grid samples.";return}
  const ix=sites(xs,n),iy=sites(ys,n),pitch=Math.min(P.x[ix[n-1]]-P.x[ix[0]],P.y[iy[n-1]]-P.y[iy[0]])/(n-1);
  const radius=s.thickness*pitch,groups=Object.fromEntries(keys.map(k=>[k,group()]));
- const zcenter=(s.scale+ s.thickness+.02)*pitch;
+ // Fixed normal-vector calibration, independent of all display sliders.
+ const normalScale=P.normal_display_scale;
+ const zcenter=Math.max((s.scale+s.thickness+.02)*pitch,normalScale+.5*radius);
  let count=0;
  for(const j of iy)for(const i of ix){
   const k=j*P.x.length+i,re=P.re.map(v=>v[k]),im=P.im.map(v=>v[k]),d=decompose(re,im);
-  if(!d||d.amp<s.cutoff)continue;count++;
+  if(!d||P.I[k]<s.cutoff)continue;count++;
   const center=[P.x[i],P.y[j],zcenter],ell=d.ell,g=d.gamma;
   let sign=g[2];if(Math.abs(sign)<.05*norm(g))sign=Math.abs(g[0])>=Math.abs(g[1])?g[0]:g[1];
   const key=ell<s.linear?"linear":sign>0?"positive":"negative";
@@ -69,17 +71,18 @@ async function rebuild(){
    tube(groups[key],points,radius,true);
   }
   if(!d.circular)for(const name of ["alpha","beta"]){
-   const v=mul(d[name],s.scale*pitch);if(norm(v)>1e-9)tube(groups[name],[sub(center,v),add(center,v)],.45*radius);
+   // Retain both semiaxes, with an arrowhead at the chosen positive endpoint.
+   const v=mul(d[name],s.scale*pitch);if(norm(v)>1e-9)arrow(groups[name],sub(center,v),mul(v,2),.45*radius);
   }
-  const v=mul(g,s.scale*pitch);if(norm(v)>1e-9)arrow(groups.gamma,center,v,.45*radius);
+  const v=mul(g,normalScale);if(norm(v)>1e-9)arrow(groups.gamma,center,v,.45*radius);
  }
  const xx=xs.filter((_,k)=>k%Math.max(1,Math.ceil(xs.length/120))===0||k===xs.length-1),yy=ys.filter((_,k)=>k%Math.max(1,Math.ceil(ys.length/120))===0||k===ys.length-1);
  const I=yy.map(j=>xx.map(i=>P.I[j*P.x.length+i])),zero=yy.map(()=>xx.map(()=>0));
  const data=[],indices={};
  for(let k=1;k<=2;k++){const key="intensity"+k;indices[key]=data.length;data.push({type:"surface",scene:k===1?"scene":"scene2",x:xx.map(i=>P.x[i]),y:yy.map(i=>P.y[i]),z:zero,surfacecolor:I,colorscale:"Viridis",cmin:0,cmax:1,opacity:s.opacity,visible:visibility(key),showscale:true,showlegend:false,colorbar:{x:1.01,y:k===1?.77:.23,len:.34,thickness:14,title:{text:"I/Imax"}},lighting:{ambient:1,diffuse:0,specular:0},hoverinfo:"skip"})}
  for(const key of keys){indices[key]=data.length;data.push({...groups[key],type:"mesh3d",scene:["alpha","beta","gamma"].includes(key)?"scene2":"scene",color:colors[key],visible:visibility(key),showlegend:false,hoverinfo:"skip",lighting:{ambient:.65,diffuse:.35,specular:0,roughness:1},flatshading:false})}
- const layout=JSON.parse(JSON.stringify(P.layout)),zmax=Math.max((2*s.scale+2*s.thickness+.1)*pitch,1.1*pitch);
- for(const key of ["scene","scene2"]){const scene=layout[key];scene.xaxis.range=[s.xmin,s.xmax];scene.yaxis.range=[s.ymin,s.ymax];scene.zaxis.range=[-.1*pitch,zmax];scene.aspectratio={x:s.xmax-s.xmin,y:s.ymax-s.ymin,z:zmax+.1*pitch};
+ const layout=JSON.parse(JSON.stringify(P.layout)),zmax=zcenter+Math.max(s.scale*pitch,normalScale)+2*radius+.02*pitch;
+ for(const key of ["scene","scene2"]){const scene=layout[key];scene.xaxis.range=[-s.limit,s.limit];scene.yaxis.range=[-s.limit,s.limit];scene.zaxis.range=[-.1*pitch,zmax];scene.aspectratio={x:2*s.limit,y:2*s.limit,z:zmax+.1*pitch};
   if(!initial&&gd.layout?.[key]?.camera)scene.camera=gd.layout[key].camera;
  }
  await Plotly.react(gd,data,layout,{responsive:true,displaylogo:false});
