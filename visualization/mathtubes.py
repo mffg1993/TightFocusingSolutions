@@ -178,6 +178,8 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                         roi_threshold: float = 0.05,
                         linear_threshold: float = 0.03,
                         glyph_mode: str = 'ellipse',
+                        interactive: bool = False,
+                        html_path: str | None = None,
                         screenshot: str | None = None,
                         off_screen: bool = True, size: tuple[int,int] = (1100,900),
                         show: bool = True) -> pv.Plotter:
@@ -194,6 +196,8 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     are omitted. Unspecified limits are automatically selected from the
     roi_threshold fraction of peak intensity, with padding, capped by roi.
     Explicit xlim/ylim override auto framing. Fields are not recalculated.
+    interactive=True uses the standalone browser-side HTML backend.
+    html_path optionally exports the same scene as an interactive HTML file.
     """
     e=np.asarray(field)
     x=np.asarray(x,dtype=float);y=np.asarray(y,dtype=float)
@@ -240,7 +244,8 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     grid=pv.StructuredGrid(X[sy,sx],Y[sy,sx],np.zeros_like(X[sy,sx]))
     grid.point_data["Intensity"]=intensity[sy,sx].ravel(order="F")
     # Independent renderers: the scalar bar cannot overlap the 3D scene.
-    plot=pv.Plotter(shape=(1,2), border=False, off_screen=off_screen,window_size=size)
+    plot=pv.Plotter(shape=(1,2), border=False, off_screen=off_screen,
+                    notebook=interactive, window_size=size)
     plot.renderers[0].SetViewport(0.0,0.0,0.80,1.0)
     plot.renderers[1].SetViewport(0.80,0.0,1.0,1.0)
     plot.subplot(0,0)
@@ -354,8 +359,15 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     plot.enable_parallel_projection()
     plot.reset_camera()
     plot.camera.zoom(0.87)
-    if screenshot is not None: plot.screenshot(screenshot)
-    if show: plot.show(jupyter_backend="static")
+    if screenshot is not None:
+        plot.screenshot(screenshot)
+    if html_path is not None:
+        if hasattr(plot, "trame") and hasattr(plot.trame, "export_html"):
+            plot.trame.export_html(str(html_path))
+        else:
+            plot.export_html(str(html_path))
+    if show:
+        plot.show(jupyter_backend="html" if interactive else "static")
     return plot
 
 __all__=["tube","curve_mesh","parametric_points","parametric_tube",
