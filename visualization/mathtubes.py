@@ -143,7 +143,10 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
                         xlim: tuple[float, float] | None = None,
                         ylim: tuple[float, float] | None = None,
                         tube_radius_fraction: float = 0.065,
-                        minimum_relative_amplitude: float = 1e-9,
+                        minimum_relative_amplitude: float = 0.03,
+                        auto_roi: bool = True,
+                        roi_threshold: float = 0.05,
+                        linear_threshold: float = 0.03,
                         screenshot: str | None = None,
                         off_screen: bool = True, size: tuple[int,int] = (1100,900),
                         show: bool = True) -> pv.Plotter:
@@ -153,10 +156,14 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     Ellipse sizes are *locally normalized for legibility*. Consequently,
     ellipse size must NOT be interpreted as measured field amplitude.
     The continuous background carries the intensity information.
-    Colors show sign(Im(Ex*conj(Ey))), a transverse handedness proxy only.
-    Skip a site if the field nearly vanishes (polarization undefined).
-    xlim/ylim select the plotted region in vacuum-wavelength units; omitted
-    limits default to (-roi, roi). The optical field itself is not recalculated.
+    Color distinguishes full 3D ellipticity (minor/major semiaxis ratio):
+    gray for nearly linear, red/blue for nonzero signed transverse spin
+    (Im(Ex*conj(Ey))), and orange for elliptical states with negligible
+    transverse spin projection. The colors do not define 3D helicity.
+    Sites below minimum_relative_amplitude times the global peak amplitude
+    are omitted. Unspecified limits are automatically selected from the
+    roi_threshold fraction of peak intensity, with padding, capped by roi.
+    Explicit xlim/ylim override auto framing. Fields are not recalculated.
     """
     e=np.asarray(field)
     x=np.asarray(x,dtype=float);y=np.asarray(y,dtype=float)
@@ -170,8 +177,20 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     top=float(intensity.max())
     if top<=0: raise ValueError("field has zero intensity everywhere")
     intensity=intensity/top
-    if xlim is None: xlim=(-float(roi),float(roi))
-    if ylim is None: ylim=(-float(roi),float(roi))
+    if not 0 < roi_threshold <= 1: raise ValueError("roi_threshold must lie in (0,1]")
+    if not 0 <= minimum_relative_amplitude < 1: raise ValueError("minimum_relative_amplitude must lie in [0,1)")
+    if not 0 <= linear_threshold < 1: raise ValueError("linear_threshold must lie in [0,1)")
+    def auto_limits(axis, indices):
+        lo, hi = axis[indices.min()], axis[indices.max()]
+        margin = max(0.18*(hi-lo), 3*np.min(np.diff(axis)))
+        # Keep enough samples to support the requested ellipse density.
+        center = (lo+hi)/2
+        half = max((hi-lo)/2+margin, (ngrid+4)*np.min(np.diff(axis))/2)
+        return (max(float(axis[0]), -float(roi), center-half),
+                min(float(axis[-1]), float(roi), center+half))
+    iy_sig, ix_sig = np.nonzero(intensity >= roi_threshold)
+    if xlim is None: xlim=auto_limits(x,ix_sig) if auto_roi else (-float(roi),float(roi))
+    if ylim is None: ylim=auto_limits(y,iy_sig) if auto_roi else (-float(roi),float(roi))
     xlim=tuple(float(v) for v in xlim)
     ylim=tuple(float(v) for v in ylim)
     if (len(xlim)!=2 or len(ylim)!=2
@@ -188,27 +207,34 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     sy=slice(ys[0],ys[-1]+1);sx=slice(xs[0],xs[-1]+1)
     grid=pv.StructuredGrid(X[sy,sx],Y[sy,sx],np.zeros_like(X[sy,sx]))
     grid.point_data["Intensity"]=intensity[sy,sx].ravel(order="F")
-    plot=pv.Plotter(off_screen=off_screen,window_size=size)
+    # Independent renderers: the scalar bar cannot overlap the 3D scene.
+    plot=pv.Plotter(shape=(1,2), border=False, off_screen=off_screen,window_size=size)
+    plot.renderers[0].SetViewport(0.0,0.0,0.80,1.0)
+    plot.renderers[1].SetViewport(0.80,0.0,1.0,1.0)
+    plot.subplot(0,0)
     plot.set_background("white")
     # Do not use an automatic scalar bar here: its orientation and placement
     # can vary between PyVista themes and VTK/Colab versions.
     intensity_actor = plot.add_mesh(
         grid, scalars="Intensity", cmap="viridis", clim=(0, 1),
-        opacity=0.83, show_scalar_bar=False)
+        opacity=1.0, lighting=False, show_scalar_bar=False)
+    plot.subplot(0,1)
+    plot.set_background("white")
     plot.add_scalar_bar(
         title="Intensity / max", mapper=intensity_actor.mapper,
         vertical=True, interactive=False,
-        position_x=0.88, position_y=0.21,
-        width=0.075, height=0.56,
+        position_x=0.15, position_y=0.18,
+        width=0.32, height=0.64,
         n_labels=5, fmt="%.2f",
         color="black", title_font_size=14, label_font_size=12,
         outline=False)
     # Explicit VTK enforcement protects against version/theme overrides.
     bar_actor = plot.scalar_bars["Intensity / max"]
     bar_actor.SetOrientationToVertical()
-    bar_actor.SetPosition(0.88, 0.21)
-    bar_actor.SetWidth(0.075)
-    bar_actor.SetHeight(0.56)
+    bar_actor.SetPosition(0.15, 0.18)
+    bar_actor.SetWidth(0.32)
+    bar_actor.SetHeight(0.64)
+    plot.subplot(0,0)
     plot.enable_anti_aliasing("ssaa")
     plot.enable_lightkit()
     inds_x=np.linspace(xs[0]+2,xs[-1]-2,ngrid).round().astype(int)
@@ -223,7 +249,9 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             amp=np.linalg.norm(vector)
             if amp<minimum_relative_amplitude*max_amp:
                 continue
-            center=(x[ix],y[iy],.035*pitch)
+            # Lift glyphs clear of the intensity plane: the whole ellipse is visible.
+            # This is a graphical displacement, not an optical propagation distance.
+            center=(x[ix],y[iy],(.46+tube_radius_fraction)*pitch)
             # The local 3D polarization ellipse is the image of a unit
             # circle under the real 3x2 matrix [Re(E), Im(E)]. Its singular
             # values are the major and minor semiaxes. If the minor axis
@@ -241,9 +269,16 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
             else:
                 path=ellipse_points(vector,center,scale=scale,samples=72)
                 mesh=tube(path,radius=ellipse_radius,closed=True,sides=24)
-            hand=np.imag(vector[0]*np.conj(vector[1]))
-            hue="#d95f59" if hand>1e-9*amp*amp else (
-                "#348fba" if hand<-1e-9*amp*amp else "#eeeeee")
+            ellipticity=singular_values[1]/singular_values[0]
+            spin=2*np.imag(np.cross(np.conj(vector),vector))/amp**2
+            # Retain the existing Im(Ex Ey*) sign convention for red/blue.
+            transverse=-spin[2]/2
+            if ellipticity < linear_threshold:
+                hue="#e6e6e6"
+            elif abs(spin[2]) < 0.05*np.linalg.norm(spin):
+                hue="#ff9825"
+            else:
+                hue="#e64760" if transverse>0 else "#24b4ef"
             # Matte color: no metallic environment reflections that can alter hue.
             plot.add_mesh(mesh, color=hue, smooth_shading=True,
                           pbr=False, ambient=0.60, diffuse=0.40,
@@ -253,17 +288,19 @@ def plot_field_ellipses(field: np.ndarray, x: np.ndarray, y: np.ndarray,
     # bounds so nearly-planar geometry does not create tiny/unreadable axes.
     # The z-coordinate is a display offset, not longitudinal propagation.
     bounds = (xlim[0], xlim[1], ylim[0], ylim[1],
-              -0.10 * pitch, 0.70 * pitch)
+              0.0, max(1.1, 0.92+2*tube_radius_fraction)*pitch)
     plot.show_bounds(bounds=bounds, xtitle="x / λ₀", ytitle="y / λ₀",
                      ztitle="z / λ₀", n_xlabels=5, n_ylabels=5,
                      n_zlabels=2, location="outer", all_edges=True,
-                     color="black")
+                     color="black", show_zaxis=False)
     plot.add_axes(line_width=2)
     midpoint=((xlim[0]+xlim[1])/2, (ylim[0]+ylim[1])/2, 0.0)
     span=max(xlim[1]-xlim[0],ylim[1]-ylim[0])
     plot.camera_position=[(midpoint[0]+1.27*span, midpoint[1]-1.83*span,
                            midpoint[2]+2.5*span), midpoint, (0,0,1)]
-    plot.camera.zoom(1.45)
+    plot.enable_parallel_projection()
+    plot.reset_camera()
+    plot.camera.zoom(0.87)
     if screenshot is not None: plot.screenshot(screenshot)
     if show: plot.show(jupyter_backend="static")
     return plot
