@@ -1,0 +1,76 @@
+{
+  "project": "TightFocusingSolutions",
+  "source_notebook": "02_Focal_Plane_Polarization_Atlas_PyVista.ipynb",
+  "method": "Five Bessel integrals, Simpson quadrature, radial interpolation",
+  "numerical_reference_not_exact_truth": true,
+  "reference_resolution": {
+    "n_theta": 1601,
+    "n_radial": 2001
+  },
+  "comparison_resolutions": {
+    "default": [
+      401,
+      251
+    ],
+    "intermediate": [
+      801,
+      1001
+    ],
+    "reference": [
+      1601,
+      2001
+    ]
+  },
+  "NA": 0.85,
+  "n_medium": 1.0,
+  "lambda0": 1.0,
+  "focal_length": 1.0,
+  "focal_plane_z": 0.0,
+  "cartesian_grid_size": 121,
+  "coordinate_units": "same length units as lambda0 (lambda0=1 by default)",
+  "components": [
+    "Ex",
+    "Ey",
+    "Ez"
+  ],
+  "field_shape": [
+    "component",
+    "y",
+    "x"
+  ],
+  "dtype": "complex128",
+  "time_convention": "exp(-i omega t)",
+  "constant_lens_phase": "exp(-ikf) omitted",
+  "incident_pupil": "q**abs(ell) * exp(-q**2); q=sin(theta)/sin(alpha)",
+  "equal_incident_power_normalization": false,
+  "python_version": "3.13.18",
+  "numpy_version": "2.4.6",
+  "scipy_version": "1.16.3",
+  "cases": [
+    "Gaussian_H",
+    "LG_plus1_H",
+    "LG_minus1_H",
+    "Gaussian_V",
+    "LG_plus1_V",
+    "LG_minus1_V",
+    "Gaussian_D",
+    "LG_plus1_D",
+    "LG_minus1_D",
+    "Gaussian_A",
+    "LG_plus1_A",
+    "LG_minus1_A",
+    "Gaussian_R",
+    "LG_plus1_R",
+    "LG_minus1_R",
+    "Gaussian_L",
+    "LG_plus1_L",
+    "LG_minus1_L",
+    "CV_Radial",
+    "CV_Azimuthal",
+    "CV_Hyperbolic_X",
+    "CV_Hyperbolic_Y",
+    "FP_Star",
+    "FP_Monstar",
+    "FP_Lemon"
+  ]
+}
