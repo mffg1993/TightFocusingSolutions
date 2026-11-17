@@ -88,6 +88,12 @@ The two GPU feature branches use **JAX** for the atlas calculation and explicitl
 
 A standalone tutorial on three-dimensional C-points, phase winding of `E·E`, nonorientable polarization-axis ribbons, interactive Plotly visualization, and OBJ mesh export. The star, monstar and lemon labels refer to the incident textures; the focused topology is tested independently.
 
+### Polychromatic electric-field knots (Tutorial 04)
+
+[Open in Google Colab](https://colab.research.google.com/github/mffg1993/TightFocusingSolutions/blob/main/tutorials/04_Polychromatic_Electric_Field_Knots.ipynb) · [Notebook source](tutorials/04_Polychromatic_Electric_Field_Knots.ipynb).
+
+A standalone, editable reproduction tutorial based on Ferrer-Garcia *et al.*, *Physical Review Research* **3**, 033226 (2021). Independently focus three chromatic vector-vortex beams, reconstruct real instantaneous electric-field-tip trajectories, explore the published frequency presets, display local 3D knot candidates, optionally calculate knot determinants, and export the complex chromatic fields. This tutorial does not claim an exact reproduction of the published knot-density percentages.
+
 ## Getting started
 
 ### 1. Clone the repository
