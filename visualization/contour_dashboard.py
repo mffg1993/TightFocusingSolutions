@@ -31,7 +31,7 @@ def export_contour_dashboard(field,x,y,html_path,*,center=(0.,0.),radius=.4,
     e=e/np.sqrt(peak)
     payload=dict(x=x.tolist(),y=y.tolist(),re=e.real.reshape(3,-1).tolist(),
         im=e.imag.reshape(3,-1).tolist(),center=center.tolist(),maximum=maximum,
-        defaults=dict(radius=radius,count=count,quantity=quantity,length=arrow_length,thickness=.003,angle=0),
+        defaults=dict(radius=radius,count=count,quantity=quantity,length=arrow_length,thickness=.007,angle=0),
         angular_samples=1440)
     js=Path(__file__).with_name('contour_controls.js').read_text(encoding='utf-8')
     options=''.join(f'<option value="{key}"'+(' selected' if key==quantity else '')+f'>{label}</option>'
@@ -50,7 +50,7 @@ label span{display:flex;justify-content:space-between}output{font-variant-numeri
 <label><span>Circle radius / λ₀ <output id="radius-value"></output></span><input id="radius" type="range" min="0.03" max="MAXIMUM" step="0.01" value="RADIUS"></label>
 <label><span>Arrows around the circle <output id="count-value"></output></span><input id="count" type="range" min="16" max="256" step="8" value="COUNT"></label>
 <label><span>Arrow half-length / λ₀ <output id="length-value"></output></span><input id="length" type="range" min="0.03" max="0.30" step="0.01" value="LENGTH"></label>
-<label><span>Arrow thickness / λ₀ <output id="thickness-value"></output></span><input id="thickness" type="range" min="0.001" max="0.012" step="0.001" value="0.003"></label>
+<label><span>Arrow thickness / λ₀ <output id="thickness-value"></output></span><input id="thickness" type="range" min="0.001" max="0.012" step="0.001" value="0.007"></label>
 <label><span>Highlighted position / degrees <output id="angle-value"></output></span><input id="angle" type="range" min="0" max="360" step="1" value="0"></label>
 <label class="check"><input type="checkbox" id="background">Show intensity plane</label><button id="reset">Reset controls</button>
 </div><div id="quantity-title"></div><div class="summary"><span id="count-status"></span><span id="winding-status"></span><span id="closure-status"></span></div>
