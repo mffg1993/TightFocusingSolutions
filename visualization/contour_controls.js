@@ -40,7 +40,7 @@ function decompose(re,im){
  return {amp,alpha:add(mul(a,c),mul(b,s)),beta:add(mul(b,c),mul(a,-s)),
    gamma:mul(cross(a,b),2),ell:Math.sqrt(Math.max(0,1-q)/(1+q)),circular:q<=1e-8,a,b};
 }
-let viewMode='axes';
+let viewMode='structure';
 function phaseColor(t){t=((t%1)+1)%1;const h=t*6,c=.9,x=c*(1-Math.abs(h%2-1)),m=.08;let v=h<1?[c,x,0]:h<2?[x,c,0]:h<3?[0,c,x]:h<4?[0,x,c]:h<5?[x,0,c]:[c,0,x];return '#'+v.map(z=>Math.round(255*Math.min(1,z+m)).toString(16).padStart(2,'0')).join('');}
 function electric(v,phase){return mul(add(mul(v.re,Math.cos(2*Math.PI*phase)),mul(v.im,Math.sin(2*Math.PI*phase))),1/Math.sqrt(Math.max(v.I,1e-30)));}
 const labels={alpha:'Major axis α',beta:'Minor axis β',gamma:'Directed normal γ'};
@@ -72,7 +72,7 @@ function direction(v,key){
 }
 function mesh(g,color,scene){return {...g,type:'mesh3d',scene,color,showlegend:false,hoverinfo:'skip',lighting:{ambient:.8,diffuse:.45,specular:.05}}}
 function curve(points,scene,color='#64748b',width=4){return {type:'scatter3d',scene,mode:'lines',x:points.map(p=>p[0]),y:points.map(p=>p[1]),z:points.map(p=>p[2]),line:{color,width},showlegend:false,hoverinfo:'skip'}}
-function state(){return {radius:Number($('radius').value),count:Number($('count').value),length:Number($('length').value),thickness:Number($('thickness').value),angle:Number($('angle').value),quantity:$('quantity').value,time:Number($('time').value),mode:viewMode,colorMode:$('color-mode').value}}
+function state(){return {radius:Number($('radius').value),count:Number($('count').value),length:Number($('length').value),thickness:Number($('thickness').value),angle:Number($('angle').value),quantity:$('quantity').value,time:Number($('time').value),mode:viewMode,ellipseCount:Number($('ellipse-count').value),ellipseSize:Number($('ellipse-size').value),colorMode:$('color-mode').value}}
 let busy=false,pending=false;
 async function render(){
  if(busy){pending=true;return}busy=true;
@@ -85,7 +85,7 @@ async function render(){
   const p=R.points[j];arrow(arrows,p,mul(d,s.length),s.thickness);
   shown++;
  }
- const contextCount=Math.min(24,s.count),ellipseScale=Math.min(.075,.20*s.radius),ellipseRadius=Math.min(s.thickness,.2*ellipseScale),phaseMesh=group(),phaseColors=[];
+ const contextCount=s.ellipseCount,ellipseScale=Math.min(s.ellipseSize,.35*s.radius),ellipseRadius=Math.min(s.thickness,.2*ellipseScale),phaseMesh=group(),phaseColors=[];
  for(let i=0;i<contextCount;i++){
   const j=Math.round(i*N/contextCount),v=R.values[j],p=R.points[j];if(v.I<1e-10)continue;
   const d=decompose(v.re,v.im),name=d.ell<.03?'linear':((Math.abs(d.gamma[2])>=.05*norm(d.gamma)?d.gamma[2]:(Math.abs(d.gamma[0])>=Math.abs(d.gamma[1])?d.gamma[0]:d.gamma[1]))>=0?'positive':'negative');
@@ -98,24 +98,27 @@ async function render(){
  if($('left-ellipses').checked){for(const name of ['linear','positive','negative'])data.push(mesh(ellipses[name],colors[name],'scene'));if(phaseMesh.x.length)data.push({...mesh(phaseMesh,'#ffffff','scene'),vertexcolor:phaseColors});}
  for(const k of ['alpha','beta','gamma','electric'])if($('left-'+k).checked&&(!timed?k!=='electric':true)){const g=group();for(let i=0;i<contextCount;i++){const j=Math.round(i*N/contextCount),v=R.values[j],dir=k==='electric'?electric(v,s.time):direction(v,k);if(!dir||norm(dir)<1e-9||(k!=='gamma'&&k!=='electric'&&!axisValid))continue;arrow(g,R.points[j],mul(dir,s.length),s.thickness);}data.push(mesh(g,k==='electric'?phaseColor(s.time):colors[k],'scene'));}
  if(timed){const moving=group();for(let i=0;i<contextCount;i++){const j=Math.round(i*N/contextCount);arrow(moving,R.points[j],mul(electric(R.values[j],s.time),ellipseScale),s.thickness);}data.push(mesh(moving,phaseColor(s.time),'scene'));}
- data.push(mesh(arrows,timed?phaseColor(s.time):colors[key],'scene2'));data.push(mesh(selected,'#111827','scene2'));
+ if(s.mode!=='structure'){data.push(mesh(arrows,timed?phaseColor(s.time):colors[key],'scene2'));data.push(mesh(selected,'#111827','scene2'));}
+ if(s.mode==='structure'||timed)for(const k of ['alpha','beta','gamma'])if($('left-'+k).checked){const g=group();for(let i=0;i<s.count;i++){const j=Math.round(i*N/s.count),dir=direction(R.values[j],k);if(dir&&(k==='gamma'||axisValid))arrow(g,R.points[j],mul(dir,s.length),s.thickness);}data.push(mesh(g,colors[k],'scene2'));}
+ if(s.mode==='axes'&&axisValid){const tips=[];for(let j=0;j<=N;j++){const dir=direction(R.values[j],key);if(dir)tips.push(add(R.points[j],mul(dir,s.length)));}data.push(curve(tips,'scene2',colors[key],3));}
+
  for(const scene of ['scene','scene2'])data.push({type:'scatter3d',scene,mode:'markers',x:[point[0]],y:[point[1]],z:[point[2]],marker:{color:'#111827',size:5},showlegend:false,name:'Highlighted position'});
  const floor=-Math.max(.20,s.length*1.5);
  if($('background').checked){
   const step=Math.max(1,Math.ceil(P.x.length/65)),xs=P.x.filter((_,i)=>i%step===0),ys=P.y.filter((_,i)=>i%step===0);
   const intens=ys.map(y=>xs.map(x=>{const e=sample(x,y);return dot(e[0],e[0])+dot(e[1],e[1])}));
-  for(const scene of ['scene','scene2'])data.push({type:'surface',scene,x:xs,y:ys,z:ys.map(()=>xs.map(()=>floor)),surfacecolor:intens,colorscale:'Viridis',cmin:0,cmax:1,opacity:.8,showscale:scene==='scene',colorbar:{title:{text:'I/Imax'},len:.5,x:.47},hoverinfo:'skip',showlegend:false});
+  for(const scene of ['scene','scene2'])data.push({type:'surface',scene,x:xs,y:ys,z:ys.map(()=>xs.map(()=>floor)),surfacecolor:intens,colorscale:'Viridis',cmin:0,cmax:1,opacity:.8,showscale:scene==='scene',colorbar:{title:{text:'I/Imax'},len:.34,x:1.01,y:.77},hoverinfo:'skip',showlegend:false});
  }
  for(const scene of ['scene','scene2'])data.push(curve(R.points.map(p=>[p[0],p[1],floor+.002]),scene,'#f59e0b',6));
  const extent=s.radius+Math.max(s.length*1.6,.10),axis=(title,range)=>({title:{text:title},range,showbackground:false,showspikes:false,zeroline:false});
- const scene=()=>({xaxis:axis('x / λ₀',[P.center[0]-extent,P.center[0]+extent]),yaxis:axis('y / λ₀',[P.center[1]-extent,P.center[1]+extent]),zaxis:axis('z / λ₀',[-extent,extent]),aspectmode:'cube',camera:{eye:{x:1.25,y:-1.65,z:1.1}},domain:{x:[0,.46],y:[0,1]},uirevision:'ring-camera'});
- const layout={height:640,margin:{l:0,r:0,t:55,b:5},scene:scene(),scene2:scene(),showlegend:false,uirevision:'ring-camera',paper_bgcolor:'white',annotations:[{text:'Ellipse context on the circle',xref:'paper',yref:'paper',x:.23,y:1.06,showarrow:false},{text:(timed?'Instantaneous E(t)':labels[key])+' — '+shown+' arrows',xref:'paper',yref:'paper',x:.77,y:1.06,showarrow:false}]};
- layout.scene2.domain.x=[.54,1];
+ const scene=()=>({xaxis:axis('x / λ₀',[P.center[0]-extent,P.center[0]+extent]),yaxis:axis('y / λ₀',[P.center[1]-extent,P.center[1]+extent]),zaxis:axis('z / λ₀',[-extent,extent]),aspectmode:'cube',camera:{eye:{x:1.25,y:-1.65,z:1.1}},domain:{x:[0,1],y:[.55,1]},uirevision:'ring-camera'});
+ const layout={height:1240,margin:{l:0,r:0,t:55,b:5},scene:scene(),scene2:scene(),showlegend:false,uirevision:'ring-camera',paper_bgcolor:'white',annotations:[{text:'Ellipse context on the circle',xref:'paper',yref:'paper',x:.5,y:1.025,showarrow:false},{text:(s.mode==='structure'?'Ellipse-axis overlays':timed?'Instantaneous E(t)':labels[key])+' — '+shown+' arrows',xref:'paper',yref:'paper',x:.5,y:.49,showarrow:false}]};
+ layout.scene2.domain={x:[0,1],y:[0,.44]};
  for(const name of ['scene','scene2'])if(gd.layout?.[name]?.camera)layout[name].camera=gd.layout[name].camera;
  await Plotly.react(gd,data,layout,{responsive:true,displaylogo:false});
  const first=direction(R.values[0],key),last=direction(R.values[N],key),closure=first&&last?dot(first,last):null;
- $('quantity-title').textContent=(timed?'Instantaneous electric field E(t), t/T='+s.time.toFixed(3):labels[key])+' at radius '+s.radius.toFixed(2)+' λ₀';$('quantity-title').style.color=colors[key];
- $('count-status').textContent=shown+' / '+s.count+' arrows';$('winding-status').hidden=timed;$('winding-status').textContent='Q winding: '+(R.minQ>=1e-6?R.winding:'undefined on this contour');
+ $('quantity-title').textContent=(s.mode==='structure'?'Polarization structure':timed?'Instantaneous electric field E(t), t/T='+s.time.toFixed(3):labels[key])+' at radius '+s.radius.toFixed(2)+' λ₀';$('quantity-title').style.color=colors[key];
+ $('count-status').textContent=s.mode==='structure'?s.ellipseCount+' ellipse sites; '+s.count+' arrows per enabled axis':shown+' / '+s.count+' arrows';$('winding-status').hidden=s.mode!=='axes';$('closure-status').hidden=s.mode==='structure';$('winding-status').textContent='Q winding: '+(R.minQ>=1e-6?R.winding:'undefined on this contour');
  const fieldMismatch=norm(sub(electric(R.values[N],s.time),electric(R.values[0],s.time)));
  $('closure-status').textContent=timed?'Electric field closes: |E(2π,t) − E(0,t)| = '+fieldMismatch.toExponential(1):(closure===null?'Direction undefined':(closure<-.99?'Axis endpoint reverses after one turn':closure>.99?'Direction closes after one turn':'Inspect closure'));
  $('warning').textContent=!timed&&!axisValid?'Axis directions are undefined or undersampled on this contour. Change the radius.':shown<s.count?'Undefined vectors are omitted on this circle.':'';
@@ -124,31 +127,32 @@ async function render(){
  }catch(e){$('warning').textContent='Could not update this contour: '+e.message;console.error(e)}finally{busy=false;if(pending){pending=false;render()}}
 }
 let timer;function schedule(){clearTimeout(timer);timer=setTimeout(render,100)}
-for(const key of ['radius','count','length','thickness','angle']){
+for(const key of ['radius','count','length','thickness','angle','ellipse-count','ellipse-size']){
  $(key+'-value').textContent=$(key).value;
  $(key).addEventListener('input',()=>{$(key+'-value').textContent=$(key).value;schedule()});
 }
 $('quantity').addEventListener('change',schedule);$('background').addEventListener('change',schedule);
-$('reset').onclick=()=>{for(const [key,value]of Object.entries(P.defaults)){$(key).value=value;if($(key+'-value'))$(key+'-value').textContent=value}$('background').checked=true;$('time').value=0;$('time-value').textContent='0';$('color-mode').value='handedness';for(const k of ['alpha','beta','gamma','electric'])$('left-'+k).checked=false;$('left-ellipses').checked=true;schedule()};
+$('reset').onclick=()=>{for(const [key,value]of Object.entries(P.defaults)){$(key).value=value;if($(key+'-value'))$(key+'-value').textContent=value}$('background').checked=true;$('time').value=0;$('time-value').textContent='0';$('color-mode').value='handedness';for(const k of ['alpha','beta','gamma','electric'])$('left-'+k).checked=false;$('left-ellipses').checked=true;$('left-alpha').checked=true;$('ellipse-count').value=24;$('ellipse-count-value').textContent='24';$('ellipse-size').value=.075;$('ellipse-size-value').textContent='0.075';schedule()};
 for(const id of ['left-ellipses','left-alpha','left-beta','left-gamma','left-electric','color-mode'])$(id).addEventListener('change',schedule);
 $('time').addEventListener('input',()=>{$('time-value').textContent=$('time').value;schedule()});
 let playTimer=null;
 function stop(){if(playTimer!==null)clearInterval(playTimer);playTimer=null;$('play').textContent='Play';}
 function chooseTab(mode){
  stop();viewMode=mode;
- for(const other of ['axes','field'])$('tab-'+other).setAttribute('aria-selected',String(mode===other));
+ for(const other of ['structure','axes','field'])$('tab-'+other).setAttribute('aria-selected',String(mode===other));
  $('axis-controls').hidden=mode!=='axes';$('field-controls').hidden=mode!=='field';
- $('left-electric').disabled=mode==='axes';
- $('mode-explanation').textContent=mode==='axes'
-  ?'Static ellipse-axis geometry: select a radius and α, β, or γ. Tracked α/β endpoints can reverse after one circuit; the normal is directed.'
-  :'Actual electric field: set t/T for a still frame, or press Play. At any fixed time the electric vector returns to itself after one spatial circuit.';
+ $('left-electric').disabled=mode!=='field';
+ $('mode-explanation').textContent=mode==='structure'
+  ?'Polarization structure on a circle: vary its radius; choose ellipse colors, ellipse and arrow densities, and the axes to overlay.'
+  :mode==='axes'?'Static Möbius geometry: select α, β, or γ at the chosen radius. Circle-anchored arrows and their open endpoint locus show the tracked axis; the loop-closure badge reports sign reversal.'
+  :'Actual electric field: choose a time for a still frame or press Play. Toggle the fixed ellipse axes for comparison; the instantaneous electric vector closes after one spatial circuit.';
  schedule();
 }
-for(const mode of ['axes','field'])$('tab-'+mode).onclick=()=>chooseTab(mode);
+for(const mode of ['structure','axes','field'])$('tab-'+mode).onclick=()=>chooseTab(mode);
 $('play').onclick=()=>{
  if(playTimer!==null){stop();return}
  $('play').textContent='Pause';
  playTimer=setInterval(()=>{$('time').value=(Number($('time').value)+.025)%1;$('time-value').textContent=Number($('time').value).toFixed(3);render()},120);
 };
-chooseTab('axes');
+chooseTab('structure');
 })();
