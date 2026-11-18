@@ -40,6 +40,9 @@ function decompose(re,im){
  return {amp,alpha:add(mul(a,c),mul(b,s)),beta:add(mul(b,c),mul(a,-s)),
    gamma:mul(cross(a,b),2),ell:Math.sqrt(Math.max(0,1-q)/(1+q)),circular:q<=1e-8,a,b};
 }
+let viewMode='polarization';
+function phaseColor(t){t=((t%1)+1)%1;const h=t*6,c=.9,x=c*(1-Math.abs(h%2-1)),m=.08;let v=h<1?[c,x,0]:h<2?[x,c,0]:h<3?[0,c,x]:h<4?[0,x,c]:h<5?[x,0,c]:[c,0,x];return '#'+v.map(z=>Math.round(255*Math.min(1,z+m)).toString(16).padStart(2,'0')).join('');}
+function electric(v,phase){return mul(add(mul(v.re,Math.cos(2*Math.PI*phase)),mul(v.im,Math.sin(2*Math.PI*phase))),1/Math.sqrt(Math.max(v.I,1e-30)));}
 const labels={alpha:'Major axis α',beta:'Minor axis β',gamma:'Directed normal γ'};
 function interval(axis,v){let lo=0,hi=axis.length-1;while(hi-lo>1){const mid=(lo+hi)>>1;if(axis[mid]<=v)lo=mid;else hi=mid}return Math.min(lo,axis.length-2)}
 function sample(x,y){
@@ -69,50 +72,54 @@ function direction(v,key){
 }
 function mesh(g,color,scene){return {...g,type:'mesh3d',scene,color,showlegend:false,hoverinfo:'skip',lighting:{ambient:.8,diffuse:.45,specular:.05}}}
 function curve(points,scene,color='#64748b',width=4){return {type:'scatter3d',scene,mode:'lines',x:points.map(p=>p[0]),y:points.map(p=>p[1]),z:points.map(p=>p[2]),line:{color,width},showlegend:false,hoverinfo:'skip'}}
-function state(){return {radius:Number($('radius').value),count:Number($('count').value),length:Number($('length').value),thickness:Number($('thickness').value),angle:Number($('angle').value),quantity:$('quantity').value}}
+function state(){return {radius:Number($('radius').value),count:Number($('count').value),length:Number($('length').value),thickness:Number($('thickness').value),angle:Number($('angle').value),quantity:$('quantity').value,time:Number($('time').value),mode:viewMode,colorMode:$('color-mode').value}}
 let busy=false,pending=false;
 async function render(){
  if(busy){pending=true;return}busy=true;
  try{
- const s=state(),R=ring(s.radius),key=s.quantity,N=P.angular_samples,arrows=group(),selected=group(),ellipses={positive:group(),negative:group(),linear:group()};
+ const s=state(),R=ring(s.radius),key=s.quantity,timed=s.mode!=='polarization',N=P.angular_samples,arrows=group(),selected=group(),ellipses={positive:group(),negative:group(),linear:group()};
  let shown=0;
  const axisValid=key==='gamma'||(R.minQ>=1e-6&&R.minI>=1e-10&&R.maxstep<Math.PI/2);
  for(let i=0;i<s.count;i++){
-  const j=Math.round(i*N/s.count),d=direction(R.values[j],key);if(!d||!axisValid)continue;
-  const p=R.points[j];if(key==='gamma')arrow(arrows,p,mul(d,s.length),s.thickness);
+  const j=Math.round(i*N/s.count),d=timed?electric(R.values[j],s.time):direction(R.values[j],key);if(!d||norm(d)<1e-9||(!timed&&!axisValid))continue;
+  const p=R.points[j];if(timed||key==='gamma')arrow(arrows,p,mul(d,s.length),s.thickness);
   else arrow(arrows,sub(p,mul(d,s.length)),mul(d,2*s.length),s.thickness);
   shown++;
  }
- const contextCount=Math.min(24,s.count),ellipseScale=Math.min(.075,.20*s.radius),ellipseRadius=Math.min(.0018,.2*ellipseScale);
+ const contextCount=Math.min(24,s.count),ellipseScale=Math.min(.075,.20*s.radius),ellipseRadius=Math.min(s.thickness,.2*ellipseScale),phaseMesh=group(),phaseColors=[];
  for(let i=0;i<contextCount;i++){
   const j=Math.round(i*N/contextCount),v=R.values[j],p=R.points[j];if(v.I<1e-10)continue;
-  const d=decompose(v.re,v.im),name=d.ell<.03?'linear':(d.gamma[2]>=0?'positive':'negative');
+  const d=decompose(v.re,v.im),name=d.ell<.03?'linear':((Math.abs(d.gamma[2])>=.05*norm(d.gamma)?d.gamma[2]:(Math.abs(d.gamma[0])>=Math.abs(d.gamma[1])?d.gamma[0]:d.gamma[1]))>=0?'positive':'negative');
   if(d.ell<1e-5){const dir=mul(unit(d.alpha),ellipseScale);tube(ellipses[name],[sub(p,dir),add(p,dir)],ellipseRadius);}
-  else{const pts=Array.from({length:32},(_,k)=>{const t=2*Math.PI*k/32;return add(p,mul(add(mul(d.a,Math.cos(t)),mul(d.b,Math.sin(t))),ellipseScale))});tube(ellipses[name],pts,ellipseRadius,true)}
+  else{const pts=Array.from({length:32},(_,k)=>{const t=2*Math.PI*k/32;return add(p,mul(add(mul(d.a,Math.cos(t)),mul(d.b,Math.sin(t))),ellipseScale))});if(s.colorMode==='phase'){for(let k=0;k<pts.length;k++){const old=phaseMesh.x.length;tube(phaseMesh,[pts[k],pts[(k+1)%pts.length]],ellipseRadius);for(let q=old;q<phaseMesh.x.length;q++)phaseColors.push(phaseColor(k/pts.length));}}else tube(ellipses[name],pts,ellipseRadius,true)}
  }
- const index=Math.round(s.angle*N/360),point=R.points[index],d=direction(R.values[index],key);
- if(d&&axisValid){if(key==='gamma')arrow(selected,point,mul(d,s.length),1.8*s.thickness);else arrow(selected,sub(point,mul(d,s.length)),mul(d,2*s.length),1.8*s.thickness);}
+ const index=Math.round(s.angle*N/360),point=R.points[index],d=timed?electric(R.values[index],s.time):direction(R.values[index],key);
+ if(d&&(timed||axisValid)){if(timed||key==='gamma')arrow(selected,point,mul(d,s.length),1.8*s.thickness);else arrow(selected,sub(point,mul(d,s.length)),mul(d,2*s.length),1.8*s.thickness);}
  const data=[curve(R.points,'scene'),curve(R.points,'scene2')];
- for(const name of ['linear','positive','negative'])data.push(mesh(ellipses[name],colors[name],'scene'));
- data.push(mesh(arrows,colors[key],'scene2'));data.push(mesh(selected,'#111827','scene2'));
+ if($('left-ellipses').checked){for(const name of ['linear','positive','negative'])data.push(mesh(ellipses[name],colors[name],'scene'));if(phaseMesh.x.length)data.push({...mesh(phaseMesh,'#ffffff','scene'),vertexcolor:phaseColors});}
+ for(const k of ['alpha','beta','gamma','electric'])if($('left-'+k).checked){const g=group();for(let i=0;i<contextCount;i++){const j=Math.round(i*N/contextCount),v=R.values[j],dir=k==='electric'?electric(v,s.time):direction(v,k);if(!dir||norm(dir)<1e-9||(k!=='gamma'&&k!=='electric'&&!axisValid))continue;const start=k==='electric'||k==='gamma'?R.points[j]:sub(R.points[j],mul(dir,s.length));arrow(g,start,mul(dir,k==='electric'||k==='gamma'?s.length:2*s.length),s.thickness);}data.push(mesh(g,k==='electric'?phaseColor(s.time):colors[k],'scene'));}
+ if(timed){const moving=group();for(let i=0;i<contextCount;i++){const j=Math.round(i*N/contextCount);arrow(moving,R.points[j],mul(electric(R.values[j],s.time),ellipseScale),s.thickness);}data.push(mesh(moving,phaseColor(s.time),'scene'));}
+ data.push(mesh(arrows,timed?phaseColor(s.time):colors[key],'scene2'));data.push(mesh(selected,'#111827','scene2'));
  for(const scene of ['scene','scene2'])data.push({type:'scatter3d',scene,mode:'markers',x:[point[0]],y:[point[1]],z:[point[2]],marker:{color:'#111827',size:5},showlegend:false,name:'Highlighted position'});
+ const floor=-Math.max(.20,s.length*1.5);
  if($('background').checked){
   const step=Math.max(1,Math.ceil(P.x.length/65)),xs=P.x.filter((_,i)=>i%step===0),ys=P.y.filter((_,i)=>i%step===0);
   const intens=ys.map(y=>xs.map(x=>{const e=sample(x,y);return dot(e[0],e[0])+dot(e[1],e[1])}));
-  for(const scene of ['scene','scene2'])data.push({type:'surface',scene,x:xs,y:ys,z:ys.map(()=>xs.map(()=>0)),surfacecolor:intens,colorscale:'Viridis',cmin:0,cmax:1,opacity:.3,showscale:false,hoverinfo:'skip',showlegend:false});
+  for(const scene of ['scene','scene2'])data.push({type:'surface',scene,x:xs,y:ys,z:ys.map(()=>xs.map(()=>floor)),surfacecolor:intens,colorscale:'Viridis',cmin:0,cmax:1,opacity:.8,showscale:scene==='scene',colorbar:{title:{text:'I/Imax'},len:.5,x:.47},hoverinfo:'skip',showlegend:false});
  }
+ for(const scene of ['scene','scene2'])data.push(curve(R.points.map(p=>[p[0],p[1],floor+.002]),scene,'#f59e0b',6));
  const extent=s.radius+Math.max(s.length*1.6,.10),axis=(title,range)=>({title:{text:title},range,showbackground:false,showspikes:false,zeroline:false});
  const scene=()=>({xaxis:axis('x / λ₀',[P.center[0]-extent,P.center[0]+extent]),yaxis:axis('y / λ₀',[P.center[1]-extent,P.center[1]+extent]),zaxis:axis('z / λ₀',[-extent,extent]),aspectmode:'cube',camera:{eye:{x:1.25,y:-1.65,z:1.1}},domain:{x:[0,.46],y:[0,1]},uirevision:'ring-camera'});
- const layout={height:640,margin:{l:0,r:0,t:55,b:5},scene:scene(),scene2:scene(),showlegend:false,uirevision:'ring-camera',paper_bgcolor:'white',annotations:[{text:'Ellipse context on the circle',xref:'paper',yref:'paper',x:.23,y:1.06,showarrow:false},{text:labels[key]+' — '+shown+' arrows',xref:'paper',yref:'paper',x:.77,y:1.06,showarrow:false}]};
+ const layout={height:640,margin:{l:0,r:0,t:55,b:5},scene:scene(),scene2:scene(),showlegend:false,uirevision:'ring-camera',paper_bgcolor:'white',annotations:[{text:'Ellipse context on the circle',xref:'paper',yref:'paper',x:.23,y:1.06,showarrow:false},{text:(timed?'Instantaneous E(t)':labels[key])+' — '+shown+' arrows',xref:'paper',yref:'paper',x:.77,y:1.06,showarrow:false}]};
  layout.scene2.domain.x=[.54,1];
  for(const name of ['scene','scene2'])if(gd.layout?.[name]?.camera)layout[name].camera=gd.layout[name].camera;
  await Plotly.react(gd,data,layout,{responsive:true,displaylogo:false});
  const first=direction(R.values[0],key),last=direction(R.values[N],key),closure=first&&last?dot(first,last):null;
- $('quantity-title').textContent=labels[key]+' at radius '+s.radius.toFixed(2)+' λ₀';$('quantity-title').style.color=colors[key];
+ $('quantity-title').textContent=(timed?'Instantaneous electric field E(t), t/T='+s.time.toFixed(3):labels[key])+' at radius '+s.radius.toFixed(2)+' λ₀';$('quantity-title').style.color=colors[key];
  $('count-status').textContent=shown+' / '+s.count+' arrows';$('winding-status').textContent='Q winding: '+(R.minQ>=1e-6?R.winding:'undefined on this contour');
  $('closure-status').textContent=closure===null?'Direction undefined':(closure<-.99?'Axis endpoint reverses after one turn':closure>.99?'Direction closes after one turn':'Inspect closure');
- $('warning').textContent=!axisValid?'Axis directions are undefined or undersampled on this contour. Change the radius.':shown<s.count?'Undefined vectors are omitted on this circle.':'';
- $('selected-values').textContent=d&&axisValid?'Highlighted '+s.angle+'°: unit direction (x, y, z) = ('+d.map(v=>v.toFixed(4)).join(', ')+')':'Highlighted direction is undefined.';
+ $('warning').textContent=!timed&&!axisValid?'Axis directions are undefined or undersampled on this contour. Change the radius.':shown<s.count?'Undefined vectors are omitted on this circle.':'';
+ $('selected-values').textContent=d&&(timed||axisValid)?'Highlighted '+s.angle+(timed?'°: locally normalized E(t) (x, y, z) = (':'°: unit direction (x, y, z) = (')+d.map(v=>v.toFixed(4)).join(', ')+')':'Highlighted direction is undefined.';
  window.contourDiagnostics={...s,shown,winding:R.winding,minQ:R.minQ,minI:R.minI,closure,first,last,selected:d,axisValid};
  }catch(e){$('warning').textContent='Could not update this contour: '+e.message;console.error(e)}finally{busy=false;if(pending){pending=false;render()}}
 }
@@ -122,6 +129,12 @@ for(const key of ['radius','count','length','thickness','angle']){
  $(key).addEventListener('input',()=>{$(key+'-value').textContent=$(key).value;schedule()});
 }
 $('quantity').addEventListener('change',schedule);$('background').addEventListener('change',schedule);
-$('reset').onclick=()=>{for(const [key,value]of Object.entries(P.defaults)){$(key).value=value;if($(key+'-value'))$(key+'-value').textContent=value}$('background').checked=false;schedule()};
+$('reset').onclick=()=>{for(const [key,value]of Object.entries(P.defaults)){$(key).value=value;if($(key+'-value'))$(key+'-value').textContent=value}$('background').checked=true;$('time').value=0;$('time-value').textContent='0';$('color-mode').value='handedness';for(const k of ['alpha','beta','gamma','electric'])$('left-'+k).checked=false;$('left-ellipses').checked=true;schedule()};
+for(const id of ['left-ellipses','left-alpha','left-beta','left-gamma','left-electric','color-mode'])$(id).addEventListener('change',schedule);
+$('time').addEventListener('input',()=>{$('time-value').textContent=$('time').value;schedule()});
+let playTimer=null;
+function stop(){if(playTimer!==null)clearInterval(playTimer);playTimer=null;}
+for(const mode of ['polarization','animation','instant'])$('tab-'+mode).onclick=()=>{stop();viewMode=mode;for(const other of ['polarization','animation','instant'])$('tab-'+other).setAttribute('aria-selected',String(mode===other));schedule()};
+$('play').onclick=()=>{if(playTimer!==null){stop();return}viewMode='animation';for(const other of ['polarization','animation','instant'])$('tab-'+other).setAttribute('aria-selected',String(other==='animation'));playTimer=setInterval(()=>{$('time').value=(Number($('time').value)+.025)%1;$('time-value').textContent=Number($('time').value).toFixed(3);render()},120)};
 render();
 })();
